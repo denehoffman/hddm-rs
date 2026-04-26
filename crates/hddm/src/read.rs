@@ -295,35 +295,44 @@ pub fn read_compression<R: Read>(r: &mut R) -> HddmResult<Compression> {
     }
 }
 
-pub fn read_next_zlib_block<R: Read>(r: &mut R) -> HddmResult<Cursor<Vec<u8>>> {
-    let compressed_size = read_i32(r)?;
+fn read_next_zlib_block_with_size<R: Read>(
+    r: &mut R,
+    compressed_size: i32,
+) -> HddmResult<Cursor<Vec<u8>>> {
     if compressed_size < 0 {
         return Err(HddmError::FormatError(format!(
             "negative zlib block size: {compressed_size}"
         )));
     }
+
     let mut compressed = vec![0u8; compressed_size as usize];
     r.read_exact(&mut compressed)?;
+
     let mut decoder = ZlibDecoder::new(&compressed[..]);
     let mut decompressed = Vec::new();
     decoder.read_to_end(&mut decompressed)?;
+
     Ok(Cursor::new(decompressed))
 }
 
-pub fn read_next_bzip2_block<R: std::io::Read>(r: &mut R) -> HddmResult<std::io::Cursor<Vec<u8>>> {
-    let compressed_size = read_i32(r)?;
+fn read_next_bzip2_block_with_size<R: Read>(
+    r: &mut R,
+    compressed_size: i32,
+) -> HddmResult<Cursor<Vec<u8>>> {
     if compressed_size < 0 {
         return Err(HddmError::FormatError(format!(
             "negative bzip2 block size: {compressed_size}"
         )));
     }
-    let mut compressed = vec![0u8; compressed_size as usize];
 
+    let mut compressed = vec![0u8; compressed_size as usize];
     r.read_exact(&mut compressed)?;
+
     let mut decoder = BzDecoder::new(&compressed[..]);
     let mut decompressed = Vec::new();
     decoder.read_to_end(&mut decompressed)?;
-    Ok(std::io::Cursor::new(decompressed))
+
+    Ok(Cursor::new(decompressed))
 }
 
 pub fn read_payload<R: Read>(r: &mut R, size: i32) -> HddmResult<Vec<u8>> {
@@ -351,6 +360,12 @@ impl<R: BufRead> HddmRecordReader<R> {
             current_block: None,
         }
     }
+    fn current_block_is_empty(&self) -> bool {
+        match &self.current_block {
+            Some(block) => block.position() as usize == block.get_ref().len(),
+            None => true,
+        }
+    }
     pub fn next_record_payload(&mut self) -> HddmResult<Option<Vec<u8>>> {
         loop {
             match self.compression {
@@ -372,69 +387,69 @@ impl<R: BufRead> HddmRecordReader<R> {
                     return Ok(Some(read_payload(&mut self.raw, size)?));
                 }
                 Compression::Zlib => {
-                    if self.current_block.is_none()
-                        || self.current_block.as_ref().unwrap().position()
-                            == self.current_block.as_ref().unwrap().get_ref().len() as u64
-                    {
-                        self.current_block = Some(match read_next_zlib_block(&mut self.raw) {
-                            Ok(block) => block,
+                    if self.current_block_is_empty() {
+                        let size = match read_i32(&mut self.raw) {
+                            Ok(size) => size,
                             Err(HddmError::IoError(err))
                                 if err.kind() == std::io::ErrorKind::UnexpectedEof =>
                             {
                                 return Ok(None);
                             }
                             Err(err) => return Err(err),
-                        });
-                    }
-                    let block = self.current_block.as_mut().unwrap();
-                    let size = match read_i32(block) {
-                        Ok(size) => size,
-                        Err(HddmError::IoError(err))
-                            if err.kind() == std::io::ErrorKind::UnexpectedEof =>
-                        {
+                        };
+
+                        if size == 1 {
+                            self.compression = read_compression(&mut self.raw)?;
                             self.current_block = None;
                             continue;
                         }
-                        Err(err) => return Err(err),
-                    };
+
+                        self.current_block =
+                            Some(read_next_zlib_block_with_size(&mut self.raw, size)?);
+                    }
+
+                    let block = self.current_block.as_mut().unwrap();
+                    let size = read_i32(block)?;
+
                     if size == 1 {
                         self.compression = read_compression(block)?;
                         self.current_block = None;
                         continue;
                     }
+
                     return Ok(Some(read_payload(block, size)?));
                 }
                 Compression::Bzip2 => {
-                    if self.current_block.is_none()
-                        || self.current_block.as_ref().unwrap().position()
-                            == self.current_block.as_ref().unwrap().get_ref().len() as u64
-                    {
-                        self.current_block = Some(match read_next_bzip2_block(&mut self.raw) {
-                            Ok(block) => block,
+                    if self.current_block_is_empty() {
+                        let size = match read_i32(&mut self.raw) {
+                            Ok(size) => size,
                             Err(HddmError::IoError(err))
                                 if err.kind() == std::io::ErrorKind::UnexpectedEof =>
                             {
                                 return Ok(None);
                             }
                             Err(err) => return Err(err),
-                        });
-                    }
-                    let block = self.current_block.as_mut().unwrap();
-                    let size = match read_i32(block) {
-                        Ok(size) => size,
-                        Err(HddmError::IoError(err))
-                            if err.kind() == std::io::ErrorKind::UnexpectedEof =>
-                        {
+                        };
+
+                        if size == 1 {
+                            self.compression = read_compression(&mut self.raw)?;
                             self.current_block = None;
                             continue;
                         }
-                        Err(err) => return Err(err),
-                    };
+
+                        self.current_block =
+                            Some(read_next_bzip2_block_with_size(&mut self.raw, size)?);
+                    }
+
+                    let block = self.current_block.as_mut().unwrap();
+                    let size = read_i32(block)?;
+
                     if size == 1 {
                         self.compression = read_compression(block)?;
                         self.current_block = None;
                         continue;
                     }
+
                     return Ok(Some(read_payload(block, size)?));
                 }
             }

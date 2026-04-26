@@ -18,11 +18,7 @@ pub use header::HddmModel;
 pub use read::{ElementReader, HddmPrimitiveRead, HddmRead, HddmReader};
 pub use write::{HddmPrimitiveWrite, HddmWrite, HddmWriter};
 
-use crate::{
-    header::read_header_streaming,
-    read::HddmRecordReader,
-    write::{Bzip2BlockWriter, HddmOutputStream, ZlibBlockWriter, write_compression_token},
-};
+use crate::{header::read_header_streaming, read::HddmRecordReader, write::HddmRecordWriter};
 
 const K_NO_COMPRESSION: i32 = 0x00;
 const K_Z_COMPRESSION: i32 = 0x10;
@@ -68,7 +64,7 @@ impl<R: BufRead> HddmFile<R> {
 }
 
 pub struct HddmFileWriter {
-    writer: HddmWriter<HddmOutputStream<File>>,
+    records: HddmRecordWriter<BufWriter<File>>,
 }
 impl HddmFileWriter {
     pub fn create<P: AsRef<Path>>(path: P, header: &str) -> HddmResult<Self> {
@@ -77,40 +73,40 @@ impl HddmFileWriter {
 
     pub fn create_with_compression<P: AsRef<Path>>(
         path: P,
+
         header: &str,
+
         compression: Compression,
     ) -> HddmResult<Self> {
         let file = File::create(path)?;
+
         let mut raw = BufWriter::new(file);
+
         raw.write_all(header.as_bytes())?;
-        {
-            let mut token_writer = HddmWriter::new(&mut raw);
-            write_compression_token(&mut token_writer, compression)?;
+
+        let mut records = HddmRecordWriter::new(raw);
+
+        if compression != Compression::None {
+            records.switch_compression(compression)?;
         }
-        let stream = match compression {
-            Compression::None => HddmOutputStream::None(raw),
-            Compression::Zlib => HddmOutputStream::Zlib(ZlibBlockWriter::new(raw)),
-            Compression::Bzip2 => HddmOutputStream::Bzip2(Bzip2BlockWriter::new(raw)),
-        };
-        Ok(Self {
-            writer: HddmWriter::new(stream),
-        })
+
+        Ok(Self { records })
     }
 
     pub fn write_record<T: HddmWrite>(&mut self, record: &T) -> HddmResult<()> {
-        record.write_hddm(&mut self.writer)
+        self.records.write_record(record)
     }
 
-    pub fn writer(&mut self) -> &mut HddmWriter<HddmOutputStream<File>> {
-        &mut self.writer
+    pub fn switch_compression(&mut self, compression: Compression) -> HddmResult<()> {
+        self.records.switch_compression(compression)
     }
 
     pub fn flush(&mut self) -> HddmResult<()> {
-        self.writer.flush()
+        self.records.flush()
     }
 
-    pub fn finish(mut self) -> HddmResult<()> {
-        self.flush()
+    pub fn finish(&mut self) -> HddmResult<()> {
+        self.records.flush()
     }
 }
 

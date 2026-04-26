@@ -1,12 +1,12 @@
-use std::io::{BufWriter, Write};
+use std::io::Write;
 
-use bzip2::write::BzEncoder;
-use flate2::write::ZlibEncoder;
+use bzip2::{Compression as BzCompression, write::BzEncoder};
+use flate2::{Compression as FlateCompression, write::ZlibEncoder};
 
 use crate::{
-    Compression, HddmResult, K_BZ2_COMPRESSION, K_NO_COMPRESSION, K_Z_COMPRESSION, xdr::XdrWriter,
+    Compression, HddmError, HddmResult, K_BZ2_COMPRESSION, K_NO_COMPRESSION, K_Z_COMPRESSION,
+    xdr::XdrWriter,
 };
-
 pub struct HddmWriter<W: Write> {
     xdr: XdrWriter<W>,
 }
@@ -158,122 +158,88 @@ impl HddmPrimitiveWrite for String {
     }
 }
 
-pub fn write_compression_token<W: Write>(
-    w: &mut HddmWriter<W>,
+pub struct HddmRecordWriter<W: Write> {
+    raw: W,
     compression: Compression,
-) -> HddmResult<()> {
-    let status_bits = match compression {
-        Compression::None => K_NO_COMPRESSION,
-        Compression::Zlib => K_Z_COMPRESSION,
-        Compression::Bzip2 => K_BZ2_COMPRESSION,
-    };
-
-    w.write_i32(1)?; // status marker
-    w.write_i32(8)?; // token size
-    w.write_i32(0)?; // format
-    w.write_i32(status_bits)?; // flags
-
-    Ok(())
-}
-
-pub struct ZlibBlockWriter<W: Write> {
-    inner: W,
     buffer: Vec<u8>,
 }
-
-impl<W: Write> ZlibBlockWriter<W> {
-    pub fn new(inner: W) -> Self {
+impl<W: Write> HddmRecordWriter<W> {
+    pub fn new(raw: W) -> Self {
         Self {
-            inner,
+            raw,
+            compression: Compression::None,
             buffer: Vec::new(),
         }
     }
-    fn finish_block(&mut self) -> std::io::Result<()> {
+    pub fn switch_compression(&mut self, compression: Compression) -> HddmResult<()> {
+        self.flush_block()?;
+        self.write_status_token(compression)?;
+        self.compression = compression;
+        Ok(())
+    }
+    pub fn write_record<T: HddmWrite>(&mut self, record: &T) -> HddmResult<()> {
+        let mut bytes = Vec::new();
+        {
+            let mut writer = HddmWriter::new(&mut bytes);
+            record.write_hddm(&mut writer)?;
+        }
+        match self.compression {
+            Compression::None => {
+                self.raw.write_all(&bytes)?;
+            }
+            Compression::Zlib | Compression::Bzip2 => {
+                self.buffer.extend_from_slice(&bytes);
+            }
+        }
+        Ok(())
+    }
+    pub fn flush(&mut self) -> HddmResult<()> {
+        self.flush_block()?;
+        self.raw.flush()?;
+        Ok(())
+    }
+    fn write_status_token(&mut self, compression: Compression) -> HddmResult<()> {
+        let status_bits: i32 = match compression {
+            Compression::None => K_NO_COMPRESSION,
+            Compression::Zlib => K_Z_COMPRESSION,
+            Compression::Bzip2 => K_BZ2_COMPRESSION,
+        };
+        self.raw.write_all(&1i32.to_be_bytes())?;
+        self.raw.write_all(&8i32.to_be_bytes())?;
+        self.raw.write_all(&0i32.to_be_bytes())?;
+        self.raw.write_all(&status_bits.to_be_bytes())?;
+        Ok(())
+    }
+    fn flush_block(&mut self) -> HddmResult<()> {
         if self.buffer.is_empty() {
             return Ok(());
         }
-        let mut encoder = ZlibEncoder::new(Vec::new(), flate2::Compression::default());
-        encoder.write_all(&self.buffer)?;
-        let compressed = encoder.finish()?;
-        self.inner
+        let compressed = match self.compression {
+            Compression::None => {
+                self.raw.write_all(&self.buffer)?;
+                self.buffer.clear();
+                return Ok(());
+            }
+            Compression::Zlib => {
+                let mut encoder = ZlibEncoder::new(Vec::new(), FlateCompression::default());
+                encoder.write_all(&self.buffer)?;
+                encoder.finish()?
+            }
+            Compression::Bzip2 => {
+                let mut encoder = BzEncoder::new(Vec::new(), BzCompression::default());
+                encoder.write_all(&self.buffer)?;
+                encoder.finish()?
+            }
+        };
+        if compressed.len() > i32::MAX as usize {
+            return Err(HddmError::FormatError(
+                "compressed HDDM block too large".to_string(),
+            ));
+        }
+        self.raw
             .write_all(&(compressed.len() as i32).to_be_bytes())?;
-        self.inner.write_all(&compressed)?;
+        self.raw.write_all(&compressed)?;
         self.buffer.clear();
         Ok(())
-    }
-}
-
-impl<W: Write> Write for ZlibBlockWriter<W> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.buffer.extend_from_slice(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.finish_block()?;
-        self.inner.flush()
-    }
-}
-
-pub struct Bzip2BlockWriter<W: Write> {
-    inner: W,
-    buffer: Vec<u8>,
-}
-
-impl<W: Write> Bzip2BlockWriter<W> {
-    pub fn new(inner: W) -> Self {
-        Self {
-            inner,
-            buffer: Vec::new(),
-        }
-    }
-    fn finish_block(&mut self) -> std::io::Result<()> {
-        if self.buffer.is_empty() {
-            return Ok(());
-        }
-        let mut encoder = BzEncoder::new(Vec::new(), bzip2::Compression::default());
-        encoder.write_all(&self.buffer)?;
-        let compressed = encoder.finish()?;
-        self.inner
-            .write_all(&(compressed.len() as i32).to_be_bytes())?;
-        self.inner.write_all(&compressed)?;
-        self.buffer.clear();
-        Ok(())
-    }
-}
-
-impl<W: Write> Write for Bzip2BlockWriter<W> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.buffer.extend_from_slice(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.finish_block()?;
-        self.inner.flush()
-    }
-}
-
-pub enum HddmOutputStream<W: Write> {
-    None(BufWriter<W>),
-    Zlib(ZlibBlockWriter<BufWriter<W>>),
-    Bzip2(Bzip2BlockWriter<BufWriter<W>>),
-}
-
-impl<W: Write> Write for HddmOutputStream<W> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        match self {
-            Self::None(w) => w.write(buf),
-            Self::Zlib(w) => w.write(buf),
-            Self::Bzip2(w) => w.write(buf),
-        }
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        match self {
-            Self::None(w) => w.flush(),
-            Self::Zlib(w) => w.flush(),
-            Self::Bzip2(w) => w.flush(),
-        }
     }
 }
