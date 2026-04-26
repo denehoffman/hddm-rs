@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "demo"]
+default-members = ["crates/*"]
 
 [workspace.package]
 authors = ["Nathaniel Dene Hoffman <nhoffman@wm.edu>"]
@@ -29,3 +30,4 @@ thiserror = "2.0.18"
 
 hddm = { version = "0.1.0", path = "crates/hddm" }
 hddm-derive = { version = "0.1.0", path = "crates/hddm-derive" }
+hddm-rs = { version = "0.1.0", path = "crates/hddm-rs" }

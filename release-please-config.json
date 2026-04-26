@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "simple",
+  "include-v-in-tag": true,
+  "bump-minor-pre-major": true,
+  "bump-patch-for-minor-pre-major": true,
+  "plugins": [{ "type": "sentence-case" }],
+  "packages": {
+    ".": {
+      "include-component-in-tag": false,
+      "extra-files": [
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['hddm'].version" },
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['hddm-derive'].version" },
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['hddm-rs'].version" },
+        { "type": "toml", "path": "crates/hddm/Cargo.toml", "jsonpath": "$.package.version" },
+        { "type": "toml", "path": "crates/hddm-derive/Cargo.toml", "jsonpath": "$.package.version" },
+        { "type": "toml", "path": "crates/hddm-rs/Cargo.toml", "jsonpath": "$.package.version" }
+      ]
+    }
+  }
+}
