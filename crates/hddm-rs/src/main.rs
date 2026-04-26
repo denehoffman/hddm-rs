@@ -8,6 +8,16 @@ use indexmap::IndexMap;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
+fn raw_string_literal(s: &str) -> proc_macro2::TokenStream {
+    let mut hashes = 1;
+    while s.contains(&"#".repeat(hashes)) {
+        hashes += 1;
+    }
+    let delim = "#".repeat(hashes);
+    let lit = format!(r#"r{delim}"{s}"{delim}"#);
+    lit.parse().unwrap()
+}
+
 pub fn generate_rust(model: &HddmModel, model_text: &str) -> anyhow::Result<String> {
     let mut structs: IndexMap<String, ElementDef> = IndexMap::new();
     collect_unique_structs(&model.root, &mut structs)?;
@@ -15,7 +25,7 @@ pub fn generate_rust(model: &HddmModel, model_text: &str) -> anyhow::Result<Stri
     let generated = structs.values().map(generate_struct);
 
     let hddm_class = model.class_name.as_deref().unwrap_or("");
-    let model_lit = proc_macro2::Literal::string(model_text);
+    let model_lit = raw_string_literal(model_text);
     let class_lit = proc_macro2::Literal::string(hddm_class);
     let root_ident = struct_ident(&model.root.name);
 
