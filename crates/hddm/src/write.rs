@@ -93,6 +93,10 @@ impl<W: Write> HddmWriter<W> {
         })
     }
 
+    pub fn write_required_link<T: HddmWrite>(&mut self, item: &T) -> HddmResult<()> {
+        self.write_element(|w| item.write_contents(w))
+    }
+
     pub fn into_inner(self) -> W {
         self.xdr.into_inner()
     }

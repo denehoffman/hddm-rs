@@ -16,17 +16,28 @@ fn outer_type_name(ty: &syn::Type) -> Option<String> {
     path.path.segments.last().map(|seg| seg.ident.to_string())
 }
 
+fn is_primitive_type(ty: &syn::Type) -> bool {
+    let Some(name) = outer_type_name(ty) else {
+        return false;
+    };
+    matches!(
+        name.as_str(),
+        "i32" | "u32" | "i64" | "u64" | "f32" | "f64" | "bool" | "String" | "Particle"
+    )
+}
 fn field_kind(field: &syn::Field) -> FieldKind {
     match outer_type_name(&field.ty).as_deref() {
-        Some("Option") => FieldKind::Link,
+        Some("Option") => FieldKind::OptionalLink,
         Some("Vec") => FieldKind::List,
-        _ => FieldKind::Attr,
+        _ if is_primitive_type(&field.ty) => FieldKind::Attr,
+        _ => FieldKind::RequiredLink,
     }
 }
 
 enum FieldKind {
     Attr,
-    Link,
+    OptionalLink,
+    RequiredLink,
     List,
 }
 
@@ -34,7 +45,7 @@ fn expand_hddm_write(input: DeriveInput) -> proc_macro2::TokenStream {
     let name = input.ident;
     let Data::Struct(data) = input.data else {
         return quote! {
-            compile_error!("HdmWrite can only be derived for structs");
+            compile_error!("HddmWrite can only be derived for structs");
         };
     };
 
@@ -50,8 +61,11 @@ fn expand_hddm_write(input: DeriveInput) -> proc_macro2::TokenStream {
             FieldKind::Attr => quote! {
                 ::hddm::HddmPrimitiveWrite::write_primitive(&self.#ident, w)?;
             },
-            FieldKind::Link => quote! {
+            FieldKind::OptionalLink => quote! {
                 w.write_link(&self.#ident)?;
+            },
+            FieldKind::RequiredLink => quote! {
+                w.write_required_link(&self.#ident)?;
             },
             FieldKind::List => quote! {
                 w.write_list(&self.#ident)?;
@@ -95,11 +109,86 @@ fn expand_hddm_read(input: DeriveInput) -> proc_macro2::TokenStream {
             FieldKind::Attr => quote! {
                 #ident: ::hddm::HddmPrimitiveRead::read_primitive(r)?,
             },
-            FieldKind::Link => quote! {
+            FieldKind::OptionalLink => quote! {
                 #ident: r.read_link()?,
+            },
+            FieldKind::RequiredLink => quote! {
+                #ident: r.read_required_link()?,
             },
             FieldKind::List => quote! {
                 #ident: r.read_list()?,
+            },
+        }
+    });
+
+    let planned_initializers = fields.named.iter().map(|field| {
+        let ident = field.ident.as_ref().unwrap();
+        match field_kind(field) {
+            FieldKind::Attr => {
+                quote! { let #ident = ::hddm::HddmPrimitiveRead::read_primitive(r)?; }
+            }
+            FieldKind::OptionalLink => quote! { let mut #ident = None; },
+            FieldKind::RequiredLink => quote! { let mut #ident = None; },
+            FieldKind::List => quote! { let mut #ident = Vec::new(); },
+        }
+    });
+    let mut child_index = 0usize;
+    let planned_matches = fields.named.iter().filter_map(|field| {
+        let ident = field.ident.as_ref().unwrap();
+        match field_kind(field) {
+            FieldKind::Attr => None,
+            FieldKind::OptionalLink => {
+                let index = child_index;
+                child_index += 1;
+                Some(quote! {
+                ::hddm::ChildPlan::Decode {
+                    generated_index: #index,
+                    plan,
+                    ..
+                } => {
+                        #ident = r.read_link_planned(plan)?;
+                    }
+                })
+            }
+            FieldKind::RequiredLink => {
+                let index = child_index;
+                child_index += 1;
+                Some(quote! {
+                ::hddm::ChildPlan::Decode {
+                    generated_index: #index,
+                    plan,
+                    ..
+                } => {
+                        #ident = Some(r.read_required_link_planned(plan)?);
+                    }
+                })
+            }
+            FieldKind::List => {
+                let index = child_index;
+                child_index += 1;
+                Some(quote! {
+                ::hddm::ChildPlan::Decode {
+                    generated_index: #index,
+                    plan,
+                    ..
+                } => {
+                        #ident = r.read_list_planned(plan)?;
+                    }
+                })
+            }
+        }
+    });
+    let field_names = fields.named.iter().map(|field| {
+        let ident = field.ident.as_ref().unwrap();
+        match field_kind(field) {
+            FieldKind::RequiredLink => quote! {
+                #ident: #ident.ok_or_else(|| {
+                    ::hddm::HddmError::FormatError(
+                        concat!("missing required HDDM child `", stringify!(#ident), "`").to_string())
+                })?,
+            },
+            _ => quote! {
+                #ident
             },
         }
     });
@@ -111,6 +200,33 @@ fn expand_hddm_read(input: DeriveInput) -> proc_macro2::TokenStream {
                     #(#reads)*
                 })
             }
+        }
+        impl ::hddm::HddmReadPlanned for #name {
+            fn read_contents_planned(
+                r: &mut ::hddm::ElementReader,
+                plan: &::hddm::ElementPlan,
+            ) -> ::hddm::HddmResult<Self> {
+                #(#planned_initializers)*
+
+                for child in &plan.children {
+                    match child {
+                        #(#planned_matches)*
+                        ::hddm::ChildPlan::Skip { .. } => {
+                            r.skip_element()?;
+                        }
+                        ::hddm::ChildPlan::Decode { generated_index, .. } => {
+                            return Err(::hddm::HddmError::FormatError(format!("unexpected HDDM child index {generated_index}"
+                            )));
+                        }
+                    }
+                }
+
+                Ok(Self {
+                    #(#field_names,)*
+                })
+
+            }
+
         }
     }
 }

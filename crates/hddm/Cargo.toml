@@ -20,6 +20,9 @@ thiserror.workspace = true
 
 hddm-derive = { workspace = true, optional = true }
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [features]
 default = ['derive']
 derive = ['dep:hddm-derive']

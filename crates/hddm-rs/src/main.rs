@@ -35,6 +35,23 @@ pub fn generate_rust(model: &HddmModel, model_text: &str) -> anyhow::Result<Stri
                 ::hddm::HddmFileWriter::create(path, MODEL)
             }
         }
+
+        impl ::hddm::HddmSchema for #root_ident {
+            fn model_text() -> &'static str {
+                MODEL
+            }
+            fn hddm_class() -> &'static str {
+                HDDM_CLASS
+            }
+            fn model() -> &'static ::hddm::HddmModel {
+                static MODEL_PARSED: std::sync::OnceLock<::hddm::HddmModel> = std::sync::OnceLock::new();
+                MODEL_PARSED.get_or_init(|| {
+                    ::hddm::header::read_hddm_header_from_bytes(MODEL.as_bytes())
+                        .expect("generated HDDM model should parse")
+                        .0
+                })
+            }
+        }
     };
 
     let tokens = quote! {
@@ -98,8 +115,10 @@ fn generate_struct(elem: &ElementDef) -> TokenStream {
         let child_ty = struct_ident(&child.name);
         let ty = if child.max_occurs.as_deref() == Some("unbounded") {
             quote! { Vec<#child_ty> }
-        } else {
+        } else if child.min_occurs.as_deref() == Some("0") {
             quote! { Option<#child_ty> }
+        } else {
+            quote! { #child_ty }
         };
 
         quote! {

@@ -4,7 +4,8 @@ use bzip2::read::BzDecoder;
 use flate2::read::ZlibDecoder;
 
 use crate::{
-    Compression, HddmError, HddmResult, K_BZ2_COMPRESSION, K_Z_COMPRESSION, xdr::XdrReader,
+    Compression, ElementPlan, HddmError, HddmResult, K_BZ2_COMPRESSION, K_Z_COMPRESSION,
+    xdr::XdrReader,
 };
 
 pub struct HddmReader<R: Read> {
@@ -16,6 +17,26 @@ impl<R: Read> HddmReader<R> {
         Self {
             xdr: XdrReader::new(inner),
         }
+    }
+
+    pub fn skip_exact(&mut self, mut n: usize) -> HddmResult<()> {
+        let mut buf = [0u8; 8192];
+        while n > 0 {
+            let take = n.min(buf.len());
+            self.read_exact(&mut buf[..take])?;
+            n -= take;
+        }
+        Ok(())
+    }
+
+    pub fn skip_element(&mut self) -> HddmResult<()> {
+        let size = self.read_i32()?;
+        if size < 0 {
+            return Err(HddmError::FormatError(format!(
+                "negative HDDM element size while skipping: {size}"
+            )));
+        }
+        self.skip_exact(size as usize)
     }
 
     pub fn read_i32(&mut self) -> HddmResult<i32> {
@@ -96,6 +117,18 @@ impl<R: Read> HddmReader<R> {
         })
     }
 
+    pub fn read_required_link<T: HddmRead>(&mut self) -> HddmResult<T> {
+        self.read_element(|e| {
+            if e.is_empty() {
+                Err(HddmError::FormatError(
+                    "required HDDM link is empty".to_string(),
+                ))
+            } else {
+                T::read_contents(e)
+            }
+        })
+    }
+
     pub fn read_list<T: HddmRead>(&mut self) -> HddmResult<Vec<T>> {
         self.read_element(|e| {
             if e.is_empty() {
@@ -146,6 +179,10 @@ impl ElementReader {
         self.position() == self.size
     }
 
+    pub fn skip_element(&mut self) -> HddmResult<()> {
+        self.reader.skip_element()
+    }
+
     pub fn read_i32(&mut self) -> HddmResult<i32> {
         self.reader.read_i32()
     }
@@ -182,6 +219,10 @@ impl ElementReader {
         self.reader.read_link()
     }
 
+    pub fn read_required_link<T: HddmRead>(&mut self) -> HddmResult<T> {
+        self.reader.read_required_link()
+    }
+
     pub fn read_list<T: HddmRead>(&mut self) -> HddmResult<Vec<T>> {
         self.reader.read_list()
     }
@@ -203,6 +244,56 @@ impl ElementReader {
             ))
         }
     }
+
+    pub fn read_link_planned<T: HddmReadPlanned>(
+        &mut self,
+        plan: &ElementPlan,
+    ) -> HddmResult<Option<T>> {
+        self.reader.read_element(|e| {
+            if e.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(T::read_contents_planned(e, plan)?))
+            }
+        })
+    }
+
+    pub fn read_required_link_planned<T: HddmReadPlanned>(
+        &mut self,
+        plan: &ElementPlan,
+    ) -> HddmResult<T> {
+        self.reader.read_element(|e| {
+            if e.is_empty() {
+                Err(HddmError::FormatError(
+                    "required HDDM link is empty".to_string(),
+                ))
+            } else {
+                T::read_contents_planned(e, plan)
+            }
+        })
+    }
+
+    pub fn read_list_planned<T: HddmReadPlanned>(
+        &mut self,
+        plan: &ElementPlan,
+    ) -> HddmResult<Vec<T>> {
+        self.reader.read_element(|e| {
+            if e.is_empty() {
+                return Ok(Vec::new());
+            }
+            let count = e.read_i32()?;
+            if count < 0 {
+                return Err(HddmError::FormatError(format!(
+                    "negative HDDM list count: {count}"
+                )));
+            }
+            let mut items = Vec::with_capacity(count as usize);
+            for _ in 0..count {
+                items.push(T::read_contents_planned(e, plan)?);
+            }
+            Ok(items)
+        })
+    }
 }
 
 pub trait HddmRead: Sized {
@@ -211,6 +302,10 @@ pub trait HddmRead: Sized {
     fn read_hddm<R: Read>(r: &mut HddmReader<R>) -> HddmResult<Self> {
         r.read_element(Self::read_contents)
     }
+}
+
+pub trait HddmReadPlanned: Sized {
+    fn read_contents_planned(r: &mut ElementReader, plan: &crate::ElementPlan) -> HddmResult<Self>;
 }
 
 pub trait HddmPrimitiveRead: Sized {

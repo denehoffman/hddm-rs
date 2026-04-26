@@ -1,4 +1,16 @@
-use hddm::{Compression, HddmFile, HddmFileWriter, HddmRead, HddmResult, HddmWrite};
+use hddm::{Compression, HddmFile, HddmFileWriter, HddmRead, HddmResult, HddmSchema, HddmWrite};
+
+const MODEL: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<HDDM class="x">
+  <student name="string">
+    <enrolled semester="int" year="int" maxOccurs="unbounded">
+      <course credits="int" title="string" maxOccurs="unbounded">
+        <result minOccurs="0" Pass="boolean" grade="string" />
+      </course>
+    </enrolled>
+  </student>
+</HDDM>
+"#;
 
 #[derive(Debug, PartialEq, HddmRead, HddmWrite)]
 pub struct ResultElement {
@@ -31,17 +43,22 @@ pub struct Hddm {
     pub student: Option<Student>,
 }
 
-const MODEL: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
-<HDDM class="x">
-  <student name="string">
-    <enrolled semester="int" year="int" maxOccurs="unbounded">
-      <course credits="int" title="string" maxOccurs="unbounded">
-        <result Pass="boolean" grade="string" />
-      </course>
-    </enrolled>
-  </student>
-</HDDM>
-"#;
+impl HddmSchema for Hddm {
+    fn model_text() -> &'static str {
+        MODEL
+    }
+    fn hddm_class() -> &'static str {
+        "x"
+    }
+    fn model() -> &'static ::hddm::HddmModel {
+        static MODEL_PARSED: std::sync::OnceLock<::hddm::HddmModel> = std::sync::OnceLock::new();
+        MODEL_PARSED.get_or_init(|| {
+            ::hddm::header::read_hddm_header_from_bytes(MODEL.as_bytes())
+                .expect("generated HDDM model should parse")
+                .0
+        })
+    }
+}
 
 pub fn generate_events() -> Vec<Hddm> {
     vec![
@@ -91,15 +108,16 @@ pub fn generate_events() -> Vec<Hddm> {
 
 #[test]
 fn test_roundtrip() -> HddmResult<()> {
-    let filename = "/tmp/rust-test-roundtrip.hddm";
-    let mut file = HddmFileWriter::create(filename, MODEL)?;
+    let path = tempfile::NamedTempFile::new()?;
+    let path = path.path();
+    let mut file = HddmFileWriter::create(path, MODEL)?;
 
     let events = generate_events();
     file.write_record(&events[0])?;
     file.write_record(&events[1])?;
     file.finish()?;
 
-    let mut file = HddmFile::open(filename)?;
+    let mut file = HddmFile::open(path)?;
     assert_eq!(file.read_record::<Hddm>()?.as_ref(), Some(&events[0]));
     assert_eq!(file.read_record::<Hddm>()?.as_ref(), Some(&events[1]));
     assert!(file.read_record::<Hddm>()?.is_none());
@@ -108,15 +126,16 @@ fn test_roundtrip() -> HddmResult<()> {
 
 #[test]
 fn test_roundtrip_zlib() -> HddmResult<()> {
-    let filename = "/tmp/rust-test-roundtrip-zlib.hddm";
-    let mut file = HddmFileWriter::create_with_compression(filename, MODEL, Compression::Zlib)?;
+    let path = tempfile::NamedTempFile::new()?;
+    let path = path.path();
+    let mut file = HddmFileWriter::create_with_compression(path, MODEL, Compression::Zlib)?;
 
     let events = generate_events();
     file.write_record(&events[0])?;
     file.write_record(&events[1])?;
     file.finish()?;
 
-    let mut file = HddmFile::open(filename)?;
+    let mut file = HddmFile::open(path)?;
     assert_eq!(file.read_record::<Hddm>()?.as_ref(), Some(&events[0]));
     assert_eq!(file.read_record::<Hddm>()?.as_ref(), Some(&events[1]));
     assert!(file.read_record::<Hddm>()?.is_none());
@@ -125,15 +144,16 @@ fn test_roundtrip_zlib() -> HddmResult<()> {
 
 #[test]
 fn test_roundtrip_bzip2() -> HddmResult<()> {
-    let filename = "/tmp/rust-test-roundtrip-bzip2.hddm";
-    let mut file = HddmFileWriter::create_with_compression(filename, MODEL, Compression::Bzip2)?;
+    let path = tempfile::NamedTempFile::new()?;
+    let path = path.path();
+    let mut file = HddmFileWriter::create_with_compression(path, MODEL, Compression::Bzip2)?;
 
     let events = generate_events();
     file.write_record(&events[0])?;
     file.write_record(&events[1])?;
     file.finish()?;
 
-    let mut file = HddmFile::open(filename)?;
+    let mut file = HddmFile::open(path)?;
     assert_eq!(file.read_record::<Hddm>()?.as_ref(), Some(&events[0]));
     assert_eq!(file.read_record::<Hddm>()?.as_ref(), Some(&events[1]));
     assert!(file.read_record::<Hddm>()?.is_none());
@@ -142,8 +162,9 @@ fn test_roundtrip_bzip2() -> HddmResult<()> {
 
 #[test]
 fn test_compression_switching() -> HddmResult<()> {
-    let filename = "/tmp/rust-test-compression-switching.hddm";
-    let mut out = HddmFileWriter::create(filename, MODEL)?;
+    let path = tempfile::NamedTempFile::new()?;
+    let path = path.path();
+    let mut out = HddmFileWriter::create(path, MODEL)?;
     let events = generate_events();
 
     out.write_record(&events[0])?;
@@ -159,7 +180,7 @@ fn test_compression_switching() -> HddmResult<()> {
 
     out.finish()?;
 
-    let mut input = HddmFile::open(filename)?;
+    let mut input = HddmFile::open(path)?;
 
     assert_eq!(input.read_record::<Hddm>()?.as_ref(), Some(&events[0]));
     assert_eq!(input.read_record::<Hddm>()?.as_ref(), Some(&events[1]));
@@ -169,114 +190,262 @@ fn test_compression_switching() -> HddmResult<()> {
     Ok(())
 }
 
-#[test]
-fn debug_manual_zlib_payload_decode() -> HddmResult<()> {
-    use std::{convert::TryInto, io::Read};
+const MODEL_WITH_EXTRA: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<HDDM class="x">
+  <student name="string">
+    <advisor name="string" />
+    <enrolled semester="int" year="int" maxOccurs="unbounded">
+      <course credits="int" title="string" maxOccurs="unbounded">
+        <result minOccurs="0" Pass="boolean" grade="string" />
+      </course>
+    </enrolled>
+  </student>
+</HDDM>
+"#;
 
-    use flate2::read::ZlibDecoder;
+#[derive(Debug, PartialEq, HddmRead, HddmWrite)]
+struct HddmExtra {
+    student: Option<StudentExtra>,
+}
 
-    let path = "/tmp/rust-test.hddm";
+#[derive(Debug, PartialEq, HddmRead, HddmWrite)]
+struct StudentExtra {
+    name: String,
+    advisor: Option<Advisor>,
+    enrolled: Vec<Enrolled>,
+}
 
-    let mut out = HddmFileWriter::create_with_compression(path, MODEL, Compression::Zlib)?;
+#[derive(Debug, PartialEq, HddmRead, HddmWrite)]
+struct Advisor {
+    name: String,
+}
 
-    let events = generate_events();
-    out.write_record(&events[0])?;
-    out.write_record(&events[1])?;
-    out.finish()?;
-
-    let bytes = std::fs::read(path)?;
-    let (_header, mut offset) = hddm::header::read_hddm_header_from_bytes(&bytes)?;
-
-    while offset < bytes.len() && bytes[offset].is_ascii_whitespace() {
-        offset += 1;
+impl HddmSchema for HddmExtra {
+    fn hddm_class() -> &'static str {
+        "x"
     }
-
-    let mut p = offset;
-
-    fn read_i32_at(bytes: &[u8], p: &mut usize) -> i32 {
-        let value = i32::from_be_bytes(bytes[*p..*p + 4].try_into().unwrap());
-        *p += 4;
-        value
+    fn model_text() -> &'static str {
+        MODEL_WITH_EXTRA
     }
-
-    let marker = read_i32_at(&bytes, &mut p);
-    let token_size = read_i32_at(&bytes, &mut p);
-    let format = read_i32_at(&bytes, &mut p);
-    let status_bits = read_i32_at(&bytes, &mut p);
-
-    println!(
-        "marker={marker}, token_size={token_size}, format={format}, status_bits={status_bits:#x}"
-    );
-
-    let compressed_size = read_i32_at(&bytes, &mut p);
-    println!("compressed_size={compressed_size}");
-
-    let compressed = &bytes[p..p + compressed_size as usize];
-
-    let mut decoder = ZlibDecoder::new(compressed);
-    let mut decompressed = Vec::new();
-    decoder.read_to_end(&mut decompressed)?;
-
-    println!("decompressed_len={}", decompressed.len());
-    println!(
-        "decompressed bytes: {:02x?}",
-        &decompressed[..decompressed.len().min(128)]
-    );
-
-    let mut q = 0;
-
-    let rec1_size = read_i32_at(&decompressed, &mut q);
-    let rec1_payload = decompressed[q..q + rec1_size as usize].to_vec();
-    q += rec1_size as usize;
-
-    let rec2_size = read_i32_at(&decompressed, &mut q);
-    let rec2_payload = decompressed[q..q + rec2_size as usize].to_vec();
-    q += rec2_size as usize;
-
-    println!("rec1_size={rec1_size}, rec2_size={rec2_size}, final_q={q}");
-
-    let mut e1 = hddm::ElementReader::from_payload(rec1_payload);
-    let decoded1 = Hddm::read_contents(&mut e1)?;
-    e1.ensure_empty()?;
-
-    let mut e2 = hddm::ElementReader::from_payload(rec2_payload);
-    let decoded2 = Hddm::read_contents(&mut e2)?;
-    e2.ensure_empty()?;
-
-    println!("decoded1={decoded1:?}");
-    println!("decoded2={decoded2:?}");
-
-    assert_eq!(decoded1, events[0]);
-    assert_eq!(decoded2, events[1]);
-    assert_eq!(q, decompressed.len());
-
-    Ok(())
+    fn model() -> &'static hddm::header::HddmModel {
+        static MODEL_PARSED: std::sync::OnceLock<hddm::header::HddmModel> =
+            std::sync::OnceLock::new();
+        MODEL_PARSED.get_or_init(|| {
+            hddm::header::read_hddm_header_from_bytes(MODEL_WITH_EXTRA.as_bytes())
+                .unwrap()
+                .0
+        })
+    }
 }
 
 #[test]
-fn debug_hddmfile_zlib_read_steps() -> HddmResult<()> {
-    let path = "/tmp/rust-test.hddm";
+fn skips_unknown_child_from_file_schema() -> HddmResult<()> {
+    let path = tempfile::NamedTempFile::new()?;
+    let path = path.path();
 
-    let mut out = HddmFileWriter::create_with_compression(path, MODEL, Compression::Zlib)?;
+    let extra = HddmExtra {
+        student: Some(StudentExtra {
+            name: "Dene".into(),
+            advisor: Some(Advisor {
+                name: "Dr. X".into(),
+            }),
+            enrolled: vec![Enrolled {
+                semester: 1,
+                year: 2026,
+                courses: vec![Course {
+                    credits: 3,
+                    title: "HDDM 101".into(),
+                    result: Some(ResultElement {
+                        pass: true,
+                        grade: "A".into(),
+                    }),
+                }],
+            }],
+        }),
+    };
 
-    let events = generate_events();
-    out.write_record(&events[0])?;
-    out.write_record(&events[1])?;
+    let expected = Hddm {
+        student: Some(Student {
+            name: "Dene".into(),
+            enrolled: vec![Enrolled {
+                semester: 1,
+                year: 2026,
+                courses: vec![Course {
+                    credits: 3,
+                    title: "HDDM 101".into(),
+                    result: Some(ResultElement {
+                        pass: true,
+                        grade: "A".into(),
+                    }),
+                }],
+            }],
+        }),
+    };
+
+    let mut out = HddmFileWriter::create(path, MODEL_WITH_EXTRA)?;
+    out.write_record(&extra)?;
     out.finish()?;
 
     let mut input = HddmFile::open(path)?;
 
-    let r1 = input.read_record::<Hddm>();
-    println!("r1 = {r1:#?}");
-    assert_eq!(r1?.as_ref(), Some(&events[0]));
+    assert_eq!(input.read_record::<Hddm>()?, Some(expected));
+    assert!(input.read_record::<Hddm>()?.is_none());
 
-    let r2 = input.read_record::<Hddm>();
-    println!("r2 = {r2:#?}");
-    assert_eq!(r2?.as_ref(), Some(&events[1]));
+    Ok(())
+}
 
-    let r3 = input.read_record::<Hddm>();
-    println!("r3 = {r3:#?}");
-    assert!(r3?.is_none());
+const MODEL_MISSING_OPTIONAL: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<HDDM class="x">
+  <student name="string">
+    <enrolled semester="int" year="int" maxOccurs="unbounded">
+      <course credits="int" title="string" maxOccurs="unbounded">
+      </course>
+    </enrolled>
+  </student>
+</HDDM>
+"#;
+
+#[derive(Debug, PartialEq, HddmRead, HddmWrite)]
+struct HddmMissingOptional {
+    student: Option<StudentMissingOptional>,
+}
+#[derive(Debug, PartialEq, HddmRead, HddmWrite)]
+struct StudentMissingOptional {
+    name: String,
+    enrolled: Vec<EnrolledMissingOptional>,
+}
+#[derive(Debug, PartialEq, HddmRead, HddmWrite)]
+struct EnrolledMissingOptional {
+    semester: i32,
+    year: i32,
+    courses: Vec<CourseMissingOptional>,
+}
+#[derive(Debug, PartialEq, HddmRead, HddmWrite)]
+struct CourseMissingOptional {
+    credits: i32,
+    title: String,
+}
+impl HddmSchema for HddmMissingOptional {
+    fn hddm_class() -> &'static str {
+        "x"
+    }
+    fn model_text() -> &'static str {
+        MODEL_MISSING_OPTIONAL
+    }
+    fn model() -> &'static hddm::header::HddmModel {
+        static MODEL_PARSED: std::sync::OnceLock<hddm::header::HddmModel> =
+            std::sync::OnceLock::new();
+        MODEL_PARSED.get_or_init(|| {
+            hddm::header::read_hddm_header_from_bytes(MODEL_MISSING_OPTIONAL.as_bytes())
+                .unwrap()
+                .0
+        })
+    }
+}
+
+#[test]
+fn defaults_missing_optional_child() -> HddmResult<()> {
+    let path = tempfile::NamedTempFile::new()?;
+    let path = path.path();
+    let written = HddmMissingOptional {
+        student: Some(StudentMissingOptional {
+            name: "Dene".into(),
+            enrolled: vec![EnrolledMissingOptional {
+                semester: 1,
+                year: 2026,
+                courses: vec![CourseMissingOptional {
+                    credits: 3,
+                    title: "HDDM 101".into(),
+                }],
+            }],
+        }),
+    };
+    let expected = Hddm {
+        student: Some(Student {
+            name: "Dene".into(),
+            enrolled: vec![Enrolled {
+                semester: 1,
+                year: 2026,
+                courses: vec![Course {
+                    credits: 3,
+                    title: "HDDM 101".into(),
+                    result: None,
+                }],
+            }],
+        }),
+    };
+    let mut out = HddmFileWriter::create(path, MODEL_MISSING_OPTIONAL)?;
+    out.write_record(&written)?;
+    out.finish()?;
+    let mut input = HddmFile::open(path)?;
+    assert_eq!(input.read_record::<Hddm>()?, Some(expected));
+    Ok(())
+}
+
+const MODEL_ATTR_MISMATCH: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<HDDM class="x">
+  <student full_name="string">
+    <enrolled semester="int" year="int" maxOccurs="unbounded">
+      <course credits="int" title="string" maxOccurs="unbounded">
+        <result Pass="boolean" grade="string" />
+      </course>
+    </enrolled>
+  </student>
+</HDDM>
+"#;
+
+#[derive(Debug, PartialEq, HddmRead, HddmWrite)]
+struct HddmAttrMismatch {
+    student: Option<StudentAttrMismatch>,
+}
+
+#[derive(Debug, PartialEq, HddmRead, HddmWrite)]
+struct StudentAttrMismatch {
+    full_name: String,
+    enrolled: Vec<Enrolled>,
+}
+
+impl HddmSchema for HddmAttrMismatch {
+    fn hddm_class() -> &'static str {
+        "x"
+    }
+
+    fn model_text() -> &'static str {
+        MODEL_ATTR_MISMATCH
+    }
+
+    fn model() -> &'static hddm::header::HddmModel {
+        static MODEL_PARSED: std::sync::OnceLock<hddm::header::HddmModel> =
+            std::sync::OnceLock::new();
+
+        MODEL_PARSED.get_or_init(|| {
+            hddm::header::read_hddm_header_from_bytes(MODEL_ATTR_MISMATCH.as_bytes())
+                .unwrap()
+                .0
+        })
+    }
+}
+
+#[test]
+fn errors_on_attribute_mismatch() -> HddmResult<()> {
+    let path = tempfile::NamedTempFile::new()?;
+    let path = path.path();
+
+    let written = HddmAttrMismatch {
+        student: Some(StudentAttrMismatch {
+            full_name: "Dene".into(),
+            enrolled: Vec::new(),
+        }),
+    };
+
+    let mut out = HddmFileWriter::create(path, MODEL_ATTR_MISMATCH)?;
+    out.write_record(&written)?;
+    out.finish()?;
+
+    let mut input = HddmFile::open(path)?;
+    let err = input.read_record::<Hddm>().unwrap_err();
+
+    assert!(format!("{err}").contains("attribute mismatch"));
 
     Ok(())
 }
