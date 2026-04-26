@@ -1,8 +1,11 @@
 use std::io::{BufWriter, Write};
 
+use bzip2::write::BzEncoder;
 use flate2::write::ZlibEncoder;
 
-use crate::{Compression, HddmResult, K_NO_COMPRESSION, K_Z_COMPRESSION, xdr::XdrWriter};
+use crate::{
+    Compression, HddmResult, K_BZ2_COMPRESSION, K_NO_COMPRESSION, K_Z_COMPRESSION, xdr::XdrWriter,
+};
 
 pub struct HddmWriter<W: Write> {
     xdr: XdrWriter<W>,
@@ -162,6 +165,7 @@ pub fn write_compression_token<W: Write>(
     let status_bits = match compression {
         Compression::None => K_NO_COMPRESSION,
         Compression::Zlib => K_Z_COMPRESSION,
+        Compression::Bzip2 => K_BZ2_COMPRESSION,
     };
 
     w.write_i32(1)?; // status marker
@@ -211,9 +215,49 @@ impl<W: Write> Write for ZlibBlockWriter<W> {
     }
 }
 
+pub struct Bzip2BlockWriter<W: Write> {
+    inner: W,
+    buffer: Vec<u8>,
+}
+
+impl<W: Write> Bzip2BlockWriter<W> {
+    pub fn new(inner: W) -> Self {
+        Self {
+            inner,
+            buffer: Vec::new(),
+        }
+    }
+    fn finish_block(&mut self) -> std::io::Result<()> {
+        if self.buffer.is_empty() {
+            return Ok(());
+        }
+        let mut encoder = BzEncoder::new(Vec::new(), bzip2::Compression::default());
+        encoder.write_all(&self.buffer)?;
+        let compressed = encoder.finish()?;
+        self.inner
+            .write_all(&(compressed.len() as i32).to_be_bytes())?;
+        self.inner.write_all(&compressed)?;
+        self.buffer.clear();
+        Ok(())
+    }
+}
+
+impl<W: Write> Write for Bzip2BlockWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.buffer.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.finish_block()?;
+        self.inner.flush()
+    }
+}
+
 pub enum HddmOutputStream<W: Write> {
     None(BufWriter<W>),
     Zlib(ZlibBlockWriter<BufWriter<W>>),
+    Bzip2(Bzip2BlockWriter<BufWriter<W>>),
 }
 
 impl<W: Write> Write for HddmOutputStream<W> {
@@ -221,6 +265,7 @@ impl<W: Write> Write for HddmOutputStream<W> {
         match self {
             Self::None(w) => w.write(buf),
             Self::Zlib(w) => w.write(buf),
+            Self::Bzip2(w) => w.write(buf),
         }
     }
 
@@ -228,6 +273,7 @@ impl<W: Write> Write for HddmOutputStream<W> {
         match self {
             Self::None(w) => w.flush(),
             Self::Zlib(w) => w.flush(),
+            Self::Bzip2(w) => w.flush(),
         }
     }
 }

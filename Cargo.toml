@@ -12,6 +12,7 @@ rust-version = "1.88.0"
 
 [workspace.dependencies]
 anyhow = "1.0.102"
+bzip2 = "0.6.1"
 clap = { version = "4.6.1", features = ["derive"] }
 flate2 = "1.1.9"
 gluex-core = "0.2.2"

@@ -1,3 +1,5 @@
+use std::io::BufRead;
+
 use quick_xml::{
     Reader,
     events::{BytesStart, Event},
@@ -26,8 +28,6 @@ pub struct AttributeDef {
     pub name: String,
     pub ty: String,
 }
-
-use std::io::BufRead;
 
 pub fn read_header_streaming<R: BufRead>(reader: &mut R) -> HddmResult<(HddmModel, String)> {
     let mut header = Vec::new();

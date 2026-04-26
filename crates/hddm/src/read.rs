@@ -1,5 +1,6 @@
 use std::io::{BufRead, Cursor, Read};
 
+use bzip2::read::BzDecoder;
 use flate2::read::ZlibDecoder;
 
 use crate::{
@@ -264,32 +265,30 @@ impl HddmPrimitiveRead for String {
     }
 }
 
-pub fn read_raw_i32<R: Read>(r: &mut R) -> HddmResult<i32> {
+pub fn read_i32<R: Read>(r: &mut R) -> HddmResult<i32> {
     let mut buf = [0u8; 4];
     r.read_exact(&mut buf)?;
     Ok(i32::from_be_bytes(buf))
 }
 
 pub fn read_compression<R: Read>(r: &mut R) -> HddmResult<Compression> {
-    let token_size = read_raw_i32(r)?;
+    let token_size = read_i32(r)?;
     if token_size != 8 {
         return Err(HddmError::FormatError(format!(
             "invalid HDDM status token size: {token_size}"
         )));
     }
-    let format = read_raw_i32(r)?;
+    let format = read_i32(r)?;
     if format != 0 {
         return Err(HddmError::FormatError(format!(
             "unsupported HDDM status token format: {format}"
         )));
     }
-    let status_bits = read_raw_i32(r)?;
+    let status_bits = read_i32(r)?;
     match status_bits & (K_Z_COMPRESSION | K_BZ2_COMPRESSION) {
         0 => Ok(Compression::None),
         K_Z_COMPRESSION => Ok(Compression::Zlib),
-        K_BZ2_COMPRESSION => Err(HddmError::FormatError(
-            "bzip2 HDDM compression is not implemented".to_string(),
-        )),
+        K_BZ2_COMPRESSION => Ok(Compression::Bzip2),
         other => Err(HddmError::FormatError(format!(
             "unsupported HDDM compression bits: {other:#x}"
         ))),
@@ -297,7 +296,7 @@ pub fn read_compression<R: Read>(r: &mut R) -> HddmResult<Compression> {
 }
 
 pub fn read_next_zlib_block<R: Read>(r: &mut R) -> HddmResult<Cursor<Vec<u8>>> {
-    let compressed_size = read_raw_i32(r)?;
+    let compressed_size = read_i32(r)?;
     if compressed_size < 0 {
         return Err(HddmError::FormatError(format!(
             "negative zlib block size: {compressed_size}"
@@ -309,6 +308,22 @@ pub fn read_next_zlib_block<R: Read>(r: &mut R) -> HddmResult<Cursor<Vec<u8>>> {
     let mut decompressed = Vec::new();
     decoder.read_to_end(&mut decompressed)?;
     Ok(Cursor::new(decompressed))
+}
+
+pub fn read_next_bzip2_block<R: std::io::Read>(r: &mut R) -> HddmResult<std::io::Cursor<Vec<u8>>> {
+    let compressed_size = read_i32(r)?;
+    if compressed_size < 0 {
+        return Err(HddmError::FormatError(format!(
+            "negative bzip2 block size: {compressed_size}"
+        )));
+    }
+    let mut compressed = vec![0u8; compressed_size as usize];
+
+    r.read_exact(&mut compressed)?;
+    let mut decoder = BzDecoder::new(&compressed[..]);
+    let mut decompressed = Vec::new();
+    decoder.read_to_end(&mut decompressed)?;
+    Ok(std::io::Cursor::new(decompressed))
 }
 
 pub fn read_payload<R: Read>(r: &mut R, size: i32) -> HddmResult<Vec<u8>> {
@@ -340,7 +355,7 @@ impl<R: BufRead> HddmRecordReader<R> {
         loop {
             match self.compression {
                 Compression::None => {
-                    let size = match read_raw_i32(&mut self.raw) {
+                    let size = match read_i32(&mut self.raw) {
                         Ok(size) => size,
                         Err(HddmError::IoError(err))
                             if err.kind() == std::io::ErrorKind::UnexpectedEof =>
@@ -372,7 +387,40 @@ impl<R: BufRead> HddmRecordReader<R> {
                         });
                     }
                     let block = self.current_block.as_mut().unwrap();
-                    let size = match read_raw_i32(block) {
+                    let size = match read_i32(block) {
+                        Ok(size) => size,
+                        Err(HddmError::IoError(err))
+                            if err.kind() == std::io::ErrorKind::UnexpectedEof =>
+                        {
+                            self.current_block = None;
+                            continue;
+                        }
+                        Err(err) => return Err(err),
+                    };
+                    if size == 1 {
+                        self.compression = read_compression(block)?;
+                        self.current_block = None;
+                        continue;
+                    }
+                    return Ok(Some(read_payload(block, size)?));
+                }
+                Compression::Bzip2 => {
+                    if self.current_block.is_none()
+                        || self.current_block.as_ref().unwrap().position()
+                            == self.current_block.as_ref().unwrap().get_ref().len() as u64
+                    {
+                        self.current_block = Some(match read_next_bzip2_block(&mut self.raw) {
+                            Ok(block) => block,
+                            Err(HddmError::IoError(err))
+                                if err.kind() == std::io::ErrorKind::UnexpectedEof =>
+                            {
+                                return Ok(None);
+                            }
+                            Err(err) => return Err(err),
+                        });
+                    }
+                    let block = self.current_block.as_mut().unwrap();
+                    let size = match read_i32(block) {
                         Ok(size) => size,
                         Err(HddmError::IoError(err))
                             if err.kind() == std::io::ErrorKind::UnexpectedEof =>

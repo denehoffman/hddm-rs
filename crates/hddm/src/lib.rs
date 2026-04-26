@@ -21,7 +21,7 @@ pub use write::{HddmPrimitiveWrite, HddmWrite, HddmWriter};
 use crate::{
     header::read_header_streaming,
     read::HddmRecordReader,
-    write::{HddmOutputStream, ZlibBlockWriter, write_compression_token},
+    write::{Bzip2BlockWriter, HddmOutputStream, ZlibBlockWriter, write_compression_token},
 };
 
 const K_NO_COMPRESSION: i32 = 0x00;
@@ -32,6 +32,7 @@ const K_BZ2_COMPRESSION: i32 = 0x20;
 pub enum Compression {
     None,
     Zlib,
+    Bzip2,
 }
 
 pub struct HddmFile<R: BufRead> {
@@ -89,6 +90,7 @@ impl HddmFileWriter {
         let stream = match compression {
             Compression::None => HddmOutputStream::None(raw),
             Compression::Zlib => HddmOutputStream::Zlib(ZlibBlockWriter::new(raw)),
+            Compression::Bzip2 => HddmOutputStream::Bzip2(Bzip2BlockWriter::new(raw)),
         };
         Ok(Self {
             writer: HddmWriter::new(stream),
