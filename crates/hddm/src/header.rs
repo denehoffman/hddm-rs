@@ -1,6 +1,9 @@
+use quick_xml::{
+    Reader,
+    events::{BytesStart, Event},
+};
+
 use crate::error::{HddmError, HddmResult};
-use quick_xml::Reader;
-use quick_xml::events::{BytesStart, Event};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HddmModel {

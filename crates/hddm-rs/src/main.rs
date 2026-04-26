@@ -1,3 +1,5 @@
+use std::{fs::File, io::BufReader, path::PathBuf};
+
 use anyhow::bail;
 use clap::Parser;
 use hddm::header::{ElementDef, HddmModel};
@@ -5,7 +7,6 @@ use heck::{ToSnakeCase, ToUpperCamelCase};
 use indexmap::IndexMap;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use std::{fs::File, io::BufReader, path::PathBuf};
 
 pub fn generate_rust(model: &HddmModel, model_text: &str) -> anyhow::Result<String> {
     let mut structs: IndexMap<String, ElementDef> = IndexMap::new();
@@ -14,8 +15,8 @@ pub fn generate_rust(model: &HddmModel, model_text: &str) -> anyhow::Result<Stri
     let generated = structs.values().map(generate_struct);
 
     let hddm_class = model.class_name.as_deref().unwrap_or("");
-    let model_lit = proc_macro2::Literal::string(&model_text);
-    let class_lit = proc_macro2::Literal::string(&hddm_class);
+    let model_lit = proc_macro2::Literal::string(model_text);
+    let class_lit = proc_macro2::Literal::string(hddm_class);
     let root_ident = struct_ident(&model.root.name);
 
     let root_impl = quote! {

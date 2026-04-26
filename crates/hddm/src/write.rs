@@ -1,6 +1,8 @@
-use std::io::Write;
+use std::io::{BufWriter, Write};
 
-use crate::{HddmResult, xdr::XdrWriter};
+use flate2::write::ZlibEncoder;
+
+use crate::{Compression, HddmResult, K_NO_COMPRESSION, K_Z_COMPRESSION, xdr::XdrWriter};
 
 pub struct HddmWriter<W: Write> {
     xdr: XdrWriter<W>,
@@ -150,5 +152,82 @@ impl HddmPrimitiveWrite for bool {
 impl HddmPrimitiveWrite for String {
     fn write_primitive<W: Write>(&self, w: &mut HddmWriter<W>) -> HddmResult<()> {
         w.write_string(self)
+    }
+}
+
+pub fn write_compression_token<W: Write>(
+    w: &mut HddmWriter<W>,
+    compression: Compression,
+) -> HddmResult<()> {
+    let status_bits = match compression {
+        Compression::None => K_NO_COMPRESSION,
+        Compression::Zlib => K_Z_COMPRESSION,
+    };
+
+    w.write_i32(1)?; // status marker
+    w.write_i32(8)?; // token size
+    w.write_i32(0)?; // format
+    w.write_i32(status_bits)?; // flags
+
+    Ok(())
+}
+
+pub struct ZlibBlockWriter<W: Write> {
+    inner: W,
+    buffer: Vec<u8>,
+}
+
+impl<W: Write> ZlibBlockWriter<W> {
+    pub fn new(inner: W) -> Self {
+        Self {
+            inner,
+            buffer: Vec::new(),
+        }
+    }
+    fn finish_block(&mut self) -> std::io::Result<()> {
+        if self.buffer.is_empty() {
+            return Ok(());
+        }
+        let mut encoder = ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(&self.buffer)?;
+        let compressed = encoder.finish()?;
+        self.inner
+            .write_all(&(compressed.len() as i32).to_be_bytes())?;
+        self.inner.write_all(&compressed)?;
+        self.buffer.clear();
+        Ok(())
+    }
+}
+
+impl<W: Write> Write for ZlibBlockWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.buffer.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.finish_block()?;
+        self.inner.flush()
+    }
+}
+
+pub enum HddmOutputStream<W: Write> {
+    None(BufWriter<W>),
+    Zlib(ZlibBlockWriter<BufWriter<W>>),
+}
+
+impl<W: Write> Write for HddmOutputStream<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            Self::None(w) => w.write(buf),
+            Self::Zlib(w) => w.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            Self::None(w) => w.flush(),
+            Self::Zlib(w) => w.flush(),
+        }
     }
 }

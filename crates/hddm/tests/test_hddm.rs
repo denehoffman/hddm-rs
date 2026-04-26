@@ -1,4 +1,4 @@
-use hddm::{HddmFile, HddmFileWriter, HddmRead, HddmWrite};
+use hddm::{Compression, HddmFile, HddmFileWriter, HddmRead, HddmResult, HddmWrite};
 
 #[derive(Debug, PartialEq, HddmRead, HddmWrite)]
 pub struct ResultElement {
@@ -44,8 +44,8 @@ const MODEL: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 "#;
 
 #[test]
-fn test_roundtrip() -> anyhow::Result<()> {
-    let mut file = HddmFileWriter::create("rust-test.hddm", MODEL)?;
+fn test_roundtrip() -> HddmResult<()> {
+    let mut file = HddmFileWriter::create("/tmp/rust-test.hddm", MODEL)?;
 
     let event = Hddm {
         student: Some(Student {
@@ -92,12 +92,71 @@ fn test_roundtrip() -> anyhow::Result<()> {
     file.write_record(&event_alt)?;
     file.finish()?;
 
+    let bytes = std::fs::read("/tmp/rust-test.hddm")?;
+    println!("Bytes: {:02x?}", &bytes[..bytes.len().min(64)]);
+    println!(
+        "{}",
+        String::from_utf8_lossy(&bytes[..bytes.len().min(128)])
+    );
     let mut file = HddmFile::open("/tmp/rust-test.hddm")?;
-    let event1: Hddm = file.read_record()?.unwrap();
-    let event2: Hddm = file.read_record()?.unwrap();
-    assert_eq!(event1, event);
-    assert_eq!(event2, event_alt);
+    assert_eq!(file.read_record::<Hddm>()?, Some(event));
+    assert_eq!(file.read_record::<Hddm>()?, Some(event_alt));
     assert!(file.read_record::<Hddm>()?.is_none());
+    Ok(())
+}
 
+#[test]
+fn test_compression_roundtrip() -> HddmResult<()> {
+    let mut file =
+        HddmFileWriter::create_with_compression("/tmp/rust-test.hddm", MODEL, Compression::Zlib)?;
+    let event = Hddm {
+        student: Some(Student {
+            name: "Dene".to_string(),
+            enrolled: vec![Enrolled {
+                semester: 1,
+                year: 2026,
+                courses: vec![Course {
+                    credits: 3,
+                    title: "HDDM 101".to_string(),
+                    result: Some(ResultElement {
+                        pass: true,
+                        grade: "A".to_string(),
+                    }),
+                }],
+            }],
+        }),
+    };
+    let event_alt = Hddm {
+        student: Some(Student {
+            name: "Aditi".to_string(),
+            enrolled: vec![Enrolled {
+                semester: 1,
+                year: 2026,
+                courses: vec![
+                    Course {
+                        credits: 3,
+                        title: "Science 101".to_string(),
+                        result: Some(ResultElement {
+                            pass: true,
+                            grade: "A+".to_string(),
+                        }),
+                    },
+                    Course {
+                        credits: 10,
+                        title: "Engineering 500".to_string(),
+                        result: None,
+                    },
+                ],
+            }],
+        }),
+    };
+    file.write_record(&event)?;
+    file.write_record(&event_alt)?;
+    file.finish()?;
+
+    let mut file = HddmFile::open("/tmp/rust-test.hddm")?;
+    assert_eq!(file.read_record::<Hddm>()?, Some(event));
+    assert_eq!(file.read_record::<Hddm>()?, Some(event_alt));
+    assert!(file.read_record::<Hddm>()?.is_none());
     Ok(())
 }

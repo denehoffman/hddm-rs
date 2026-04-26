@@ -1,7 +1,8 @@
 use std::io::Write;
 
-use crate::{ElementReader, HddmPrimitiveRead, HddmPrimitiveWrite, HddmResult, HddmWriter};
 use gluex_core::Particle;
+
+use crate::{ElementReader, HddmPrimitiveRead, HddmPrimitiveWrite, HddmResult, HddmWriter};
 
 impl HddmPrimitiveRead for Particle {
     fn read_primitive(r: &mut ElementReader) -> HddmResult<Self> {

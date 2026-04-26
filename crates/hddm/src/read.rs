@@ -1,5 +1,10 @@
-use crate::{HddmError, HddmResult, xdr::XdrReader};
-use std::io::{Cursor, Read};
+use std::io::{BufRead, Cursor, Read};
+
+use flate2::read::ZlibDecoder;
+
+use crate::{
+    Compression, HddmError, HddmResult, K_BZ2_COMPRESSION, K_Z_COMPRESSION, xdr::XdrReader,
+};
 
 pub struct HddmReader<R: Read> {
     xdr: XdrReader<R>,
@@ -179,6 +184,24 @@ impl ElementReader {
     pub fn read_list<T: HddmRead>(&mut self) -> HddmResult<Vec<T>> {
         self.reader.read_list()
     }
+
+    pub fn from_payload(payload: Vec<u8>) -> Self {
+        let size = payload.len();
+        Self {
+            reader: HddmReader::new(Cursor::new(payload)),
+            size,
+        }
+    }
+
+    pub fn ensure_empty(&self) -> HddmResult<()> {
+        if self.is_empty() {
+            Ok(())
+        } else {
+            Err(HddmError::FormatError(
+                "HDDM payload has unread bytes".to_string(),
+            ))
+        }
+    }
 }
 
 pub trait HddmRead: Sized {
@@ -238,5 +261,135 @@ impl HddmPrimitiveRead for bool {
 impl HddmPrimitiveRead for String {
     fn read_primitive(r: &mut ElementReader) -> HddmResult<String> {
         r.read_string()
+    }
+}
+
+pub fn read_raw_i32<R: Read>(r: &mut R) -> HddmResult<i32> {
+    let mut buf = [0u8; 4];
+    r.read_exact(&mut buf)?;
+    Ok(i32::from_be_bytes(buf))
+}
+
+pub fn read_compression<R: Read>(r: &mut R) -> HddmResult<Compression> {
+    let token_size = read_raw_i32(r)?;
+    if token_size != 8 {
+        return Err(HddmError::FormatError(format!(
+            "invalid HDDM status token size: {token_size}"
+        )));
+    }
+    let format = read_raw_i32(r)?;
+    if format != 0 {
+        return Err(HddmError::FormatError(format!(
+            "unsupported HDDM status token format: {format}"
+        )));
+    }
+    let status_bits = read_raw_i32(r)?;
+    match status_bits & (K_Z_COMPRESSION | K_BZ2_COMPRESSION) {
+        0 => Ok(Compression::None),
+        K_Z_COMPRESSION => Ok(Compression::Zlib),
+        K_BZ2_COMPRESSION => Err(HddmError::FormatError(
+            "bzip2 HDDM compression is not implemented".to_string(),
+        )),
+        other => Err(HddmError::FormatError(format!(
+            "unsupported HDDM compression bits: {other:#x}"
+        ))),
+    }
+}
+
+pub fn read_next_zlib_block<R: Read>(r: &mut R) -> HddmResult<Cursor<Vec<u8>>> {
+    let compressed_size = read_raw_i32(r)?;
+    if compressed_size < 0 {
+        return Err(HddmError::FormatError(format!(
+            "negative zlib block size: {compressed_size}"
+        )));
+    }
+    let mut compressed = vec![0u8; compressed_size as usize];
+    r.read_exact(&mut compressed)?;
+    let mut decoder = ZlibDecoder::new(&compressed[..]);
+    let mut decompressed = Vec::new();
+    decoder.read_to_end(&mut decompressed)?;
+    Ok(Cursor::new(decompressed))
+}
+
+pub fn read_payload<R: Read>(r: &mut R, size: i32) -> HddmResult<Vec<u8>> {
+    if size < 0 {
+        return Err(HddmError::FormatError(format!(
+            "negative HDDM record size: {size}"
+        )));
+    }
+    let mut payload = vec![0u8; size as usize];
+    r.read_exact(&mut payload)?;
+    Ok(payload)
+}
+
+pub(crate) struct HddmRecordReader<R: BufRead> {
+    raw: R,
+    compression: Compression,
+    current_block: Option<Cursor<Vec<u8>>>,
+}
+
+impl<R: BufRead> HddmRecordReader<R> {
+    pub fn new(raw: R) -> Self {
+        Self {
+            raw,
+            compression: Compression::None,
+            current_block: None,
+        }
+    }
+    pub fn next_record_payload(&mut self) -> HddmResult<Option<Vec<u8>>> {
+        loop {
+            match self.compression {
+                Compression::None => {
+                    let size = match read_raw_i32(&mut self.raw) {
+                        Ok(size) => size,
+                        Err(HddmError::IoError(err))
+                            if err.kind() == std::io::ErrorKind::UnexpectedEof =>
+                        {
+                            return Ok(None);
+                        }
+                        Err(err) => return Err(err),
+                    };
+                    if size == 1 {
+                        self.compression = read_compression(&mut self.raw)?;
+                        self.current_block = None;
+                        continue;
+                    }
+                    return Ok(Some(read_payload(&mut self.raw, size)?));
+                }
+                Compression::Zlib => {
+                    if self.current_block.is_none()
+                        || self.current_block.as_ref().unwrap().position()
+                            == self.current_block.as_ref().unwrap().get_ref().len() as u64
+                    {
+                        self.current_block = Some(match read_next_zlib_block(&mut self.raw) {
+                            Ok(block) => block,
+                            Err(HddmError::IoError(err))
+                                if err.kind() == std::io::ErrorKind::UnexpectedEof =>
+                            {
+                                return Ok(None);
+                            }
+                            Err(err) => return Err(err),
+                        });
+                    }
+                    let block = self.current_block.as_mut().unwrap();
+                    let size = match read_raw_i32(block) {
+                        Ok(size) => size,
+                        Err(HddmError::IoError(err))
+                            if err.kind() == std::io::ErrorKind::UnexpectedEof =>
+                        {
+                            self.current_block = None;
+                            continue;
+                        }
+                        Err(err) => return Err(err),
+                    };
+                    if size == 1 {
+                        self.compression = read_compression(block)?;
+                        self.current_block = None;
+                        continue;
+                    }
+                    return Ok(Some(read_payload(block, size)?));
+                }
+            }
+        }
     }
 }
