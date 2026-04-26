@@ -1,6 +1,7 @@
 [package]
 name = "hddm-derive"
 version = "0.1.1"
+description = "Derive macros for hddm"
 authors.workspace = true
 edition.workspace = true
 homepage.workspace = true

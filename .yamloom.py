@@ -61,8 +61,9 @@ release_please_workflow = Workflow(
                     condition=ReleasePlease.releases_created('release').from_json_to_bool(),
                 ),
                 script(
-                    f'cargo workspaces publish --from-git --token {context.secrets.CARGO_REGISTRY_TOKEN} --yes',
+                    'cargo workspaces publish --from-git --yes',
                     condition=ReleasePlease.releases_created('release').from_json_to_bool(),
+                    env={'CARGO_REGISTRY_TOKEN': context.secrets.CARGO_REGISTRY_TOKEN},
                 ),
             ],
         )

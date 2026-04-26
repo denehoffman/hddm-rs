@@ -1,6 +1,7 @@
 [package]
 name = "hddm-rs"
 version = "0.1.1"
+description = "Rust code generator and CLI for HDDM files"
 authors.workspace = true
 edition.workspace = true
 homepage.workspace = true
