@@ -185,7 +185,7 @@ fn expand_hddm_read(input: DeriveInput) -> proc_macro2::TokenStream {
                 #ident: #ident.ok_or_else(|| {
                     ::hddm::HddmError::FormatError(
                         concat!("missing required HDDM child `", stringify!(#ident), "`").to_string())
-                })?,
+                })?
             },
             _ => quote! {
                 #ident

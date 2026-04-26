@@ -8,6 +8,14 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[lib]
+name = "hddm_rs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "hddm-rs"
+path = "src/main.rs"
+
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true

@@ -193,6 +193,7 @@ impl<W: Write> HddmRecordWriter<W> {
             }
             Compression::Zlib | Compression::Bzip2 => {
                 self.buffer.extend_from_slice(&bytes);
+                self.flush_block()?;
             }
         }
         Ok(())
@@ -230,7 +231,7 @@ impl<W: Write> HddmRecordWriter<W> {
                 encoder.finish()?
             }
             Compression::Bzip2 => {
-                let mut encoder = BzEncoder::new(Vec::new(), BzCompression::default());
+                let mut encoder = BzEncoder::new(Vec::new(), BzCompression::new(9));
                 encoder.write_all(&self.buffer)?;
                 encoder.finish()?
             }

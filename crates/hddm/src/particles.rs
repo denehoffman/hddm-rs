@@ -4,10 +4,14 @@ use gluex_core::Particle;
 
 use crate::{ElementReader, HddmPrimitiveRead, HddmPrimitiveWrite, HddmResult, HddmWriter};
 
-impl HddmPrimitiveRead for Particle {
-    fn read_primitive(r: &mut ElementReader) -> HddmResult<Self> {
-        let id = r.read_i32()?;
-        Ok(match id {
+pub trait HddmParticle {
+    fn from_i32(id: i32) -> Self;
+    fn to_i32(&self) -> i32;
+}
+
+impl HddmParticle for Particle {
+    fn from_i32(id: i32) -> Self {
+        match id {
             0 => Self::UnknownParticle,
             1 => Self::Gamma,
             2 => Self::Positron,
@@ -135,13 +139,11 @@ impl HddmPrimitiveRead for Particle {
             196 => Self::DstarMinus,
             197 => Self::Sigma_cPlusPlus,
             _ => Particle::UnknownParticle,
-        })
+        }
     }
-}
 
-impl HddmPrimitiveWrite for Particle {
-    fn write_primitive<W: Write>(&self, w: &mut HddmWriter<W>) -> HddmResult<()> {
-        let id = match self {
+    fn to_i32(&self) -> i32 {
+        match self {
             Self::UnknownParticle => 0,
             Self::Gamma => 1,
             Self::Positron => 2,
@@ -268,7 +270,20 @@ impl HddmPrimitiveWrite for Particle {
             Self::DMinus => 195,
             Self::DstarMinus => 196,
             Self::Sigma_cPlusPlus => 197,
-        };
+        }
+    }
+}
+
+impl HddmPrimitiveRead for Particle {
+    fn read_primitive(r: &mut ElementReader) -> HddmResult<Self> {
+        let id = r.read_i32()?;
+        Ok(Particle::from_i32(id))
+    }
+}
+
+impl HddmPrimitiveWrite for Particle {
+    fn write_primitive<W: Write>(&self, w: &mut HddmWriter<W>) -> HddmResult<()> {
+        let id = Particle::to_i32(self);
         w.write_i32(id)
     }
 }
