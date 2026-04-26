@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<HDDM class="mc" version="1.0" xmlns="http://www.gluex.org/hddm">
+  <physicsEvent eventNo="int" maxOccurs="unbounded" runNo="int">
+    <reaction maxOccurs="unbounded" minOccurs="0" type="int" weight="float">
+      <beam minOccurs="0" type="Particle_t">
+        <momentum E="float" px="float" py="float" pz="float">
+          <momentum_double minOccurs="0" E="double" px="double" py="double" pz="double" />
+        </momentum>
+        <properties charge="int" mass="float" />
+      </beam>
+      <target minOccurs="0" type="Particle_t">
+        <momentum E="float" px="float" py="float" pz="float">
+          <momentum_double minOccurs="0" E="double" px="double" py="double" pz="double" />
+        </momentum>
+        <properties charge="int" mass="float" />
+      </target>
+      <vertex maxOccurs="unbounded">
+        <product decayVertex="int" id="int" maxOccurs="unbounded" mech="int" parentid="int" pdgtype="int" type="Particle_t">
+          <momentum E="float" px="float" py="float" pz="float">
+            <momentum_double minOccurs="0" E="double" px="double" py="double" pz="double" />
+          </momentum>
+          <properties charge="int" mass="float" minOccurs="0" />
+        </product>
+        <origin t="float" vx="float" vy="float" vz="float" />
+      </vertex>
+      <random maxOccurs="1" minOccurs="0" seed1="int" seed2="int" seed3="int" seed4="int" />
+    </reaction>
+  </physicsEvent>
+</HDDM>

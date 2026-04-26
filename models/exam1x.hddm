@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<HDDM class="x" version="1.0" xmlns="http://www.gluex.org/hddm">
+  <student minOccurs="0" name="string">
+    <enrolled maxOccurs="unbounded" semester="int" year="int">
+      <course credits="int" maxOccurs="unbounded" title="string">
+        <result Pass="boolean" grade="string" />
+      </course>
+    </enrolled>
+  </student>
+</HDDM>

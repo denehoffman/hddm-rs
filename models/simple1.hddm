@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<HDDM class="a" version="1.0" xmlns="http://www.gluex.org/hddm">
+  <physicsEvent eventNo="int" runNo="int">
+    <forwardTOF minOccurs="0">
+      <slab maxOccurs="unbounded" y="float">
+        <side end="int" maxOccurs="unbounded">
+          <hit dE="float" maxOccurs="unbounded" t="float" />
+        </side>
+      </slab>
+    </forwardTOF>
+  </physicsEvent>
+</HDDM>

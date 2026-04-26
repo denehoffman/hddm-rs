@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<HDDM class="v" version="1.0" xmlns="http://www.gluex.org/hddm">
+  <genericTag minOccurs="0">
+    <floatTag comment="pi in single precision should be 3.141593" pi="float" />
+    <doubleTag comment="pi in double precision should be 3.141592592636" pi="double" />
+    <particleTag comment="pi as a particle type should be pi+" pi="Particle_t" />
+    <stringTag comment="quote string should be 'pass the red quarks, please'" quote="string" />
+    <intTag comment="magic number as integer should be 133557799" magic="int" />
+    <longTag comment="magic number as long integer should be 133557799002244668" magic="long" />
+    <booleanTag comment="true/false value should be 1" truth="boolean" />
+    <anyURITag comment="uri should be 'http://portal.gluex.org'" uri="anyURI" />
+  </genericTag>
+</HDDM>
