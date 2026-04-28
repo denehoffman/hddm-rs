@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/denehoffman/hddm-rs/compare/v0.1.1...v0.1.2) (2026-04-28)
+
+
+### Bug Fixes
+
+* Remove dependence on gluex_core::Particle, fix some parsing errors ([3fb09b9](https://github.com/denehoffman/hddm-rs/commit/3fb09b916b919537f98dc10c582a90549d435706))
+
 ## [0.1.1](https://github.com/denehoffman/hddm-rs/compare/v0.1.0...v0.1.1) (2026-04-26)
 
 
