@@ -1,6 +1,6 @@
 [package]
 name = "hddm"
-version = "0.1.1"
+version = "0.1.2"
 description = "Rust runtime support for HDDM files"
 authors.workspace = true
 edition.workspace = true
