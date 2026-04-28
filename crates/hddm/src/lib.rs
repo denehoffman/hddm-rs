@@ -10,8 +10,8 @@ pub(crate) mod xdr;
 pub mod prelude {
     pub use crate::{
         ChildPlan, Compression, ElementPlan, ElementReader, HddmError, HddmFile, HddmFileWriter,
-        HddmModel, HddmParticle, HddmPrimitiveRead, HddmPrimitiveWrite, HddmRead, HddmReadPlanned,
-        HddmReader, HddmResult, HddmSchema, HddmWrite, HddmWriter, ModelPlan, build_model_plan,
+        HddmModel, HddmPrimitiveRead, HddmPrimitiveWrite, HddmRead, HddmReadPlanned, HddmReader,
+        HddmResult, HddmSchema, HddmWrite, HddmWriter, ModelPlan, build_model_plan,
         validate_models,
     };
 }
@@ -28,7 +28,7 @@ pub use error::{HddmError, HddmResult};
 pub use hddm_derive::{HddmRead, HddmWrite};
 pub use header::HddmModel;
 pub use model_match::validate_models;
-pub use particles::HddmParticle;
+pub use particles::Particle;
 pub use plan::{ChildPlan, ElementPlan, ModelPlan, build_model_plan};
 pub use read::{ElementReader, HddmPrimitiveRead, HddmRead, HddmReadPlanned, HddmReader};
 pub use write::{HddmPrimitiveWrite, HddmWrite, HddmWriter};

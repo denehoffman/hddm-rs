@@ -59,23 +59,23 @@ fn expand_hddm_write(input: DeriveInput) -> proc_macro2::TokenStream {
         let ident = field.ident.as_ref().unwrap();
         match field_kind(field) {
             FieldKind::Attr => quote! {
-                ::hddm::HddmPrimitiveWrite::write_primitive(&self.#ident, w)?;
+                ::hddm::HddmPrimitiveWrite::write_primitive(&self.#ident, __hddm_writer)?;
             },
             FieldKind::OptionalLink => quote! {
-                w.write_link(&self.#ident)?;
+                __hddm_writer.write_link(&self.#ident)?;
             },
             FieldKind::RequiredLink => quote! {
-                w.write_required_link(&self.#ident)?;
+                __hddm_writer.write_required_link(&self.#ident)?;
             },
             FieldKind::List => quote! {
-                w.write_list(&self.#ident)?;
+                __hddm_writer.write_list(&self.#ident)?;
             },
         }
     });
 
     quote! {
         impl ::hddm::HddmWrite for #name {
-            fn write_contents<W: std::io::Write>(&self, w: &mut ::hddm::HddmWriter<W>) -> ::hddm::HddmResult<()> {
+            fn write_contents<W: std::io::Write>(&self, __hddm_writer: &mut ::hddm::HddmWriter<W>) -> ::hddm::HddmResult<()> {
                 #(#writes)*
                 Ok(())
             }
@@ -107,16 +107,16 @@ fn expand_hddm_read(input: DeriveInput) -> proc_macro2::TokenStream {
         let ident = field.ident.as_ref().unwrap();
         match field_kind(field) {
             FieldKind::Attr => quote! {
-                #ident: ::hddm::HddmPrimitiveRead::read_primitive(r)?,
+                #ident: ::hddm::HddmPrimitiveRead::read_primitive(__hddm_reader)?,
             },
             FieldKind::OptionalLink => quote! {
-                #ident: r.read_link()?,
+                #ident: __hddm_reader.read_link()?,
             },
             FieldKind::RequiredLink => quote! {
-                #ident: r.read_required_link()?,
+                #ident: __hddm_reader.read_required_link()?,
             },
             FieldKind::List => quote! {
-                #ident: r.read_list()?,
+                #ident: __hddm_reader.read_list()?,
             },
         }
     });
@@ -125,7 +125,7 @@ fn expand_hddm_read(input: DeriveInput) -> proc_macro2::TokenStream {
         let ident = field.ident.as_ref().unwrap();
         match field_kind(field) {
             FieldKind::Attr => {
-                quote! { let #ident = ::hddm::HddmPrimitiveRead::read_primitive(r)?; }
+                quote! { let #ident = ::hddm::HddmPrimitiveRead::read_primitive(__hddm_reader)?; }
             }
             FieldKind::OptionalLink => quote! { let mut #ident = None; },
             FieldKind::RequiredLink => quote! { let mut #ident = None; },
@@ -143,10 +143,10 @@ fn expand_hddm_read(input: DeriveInput) -> proc_macro2::TokenStream {
                 Some(quote! {
                 ::hddm::ChildPlan::Decode {
                     generated_index: #index,
-                    plan,
+                    plan: __hddm_child_plan,
                     ..
                 } => {
-                        #ident = r.read_link_planned(plan)?;
+                        #ident = __hddm_reader.read_link_planned(__hddm_child_plan)?;
                     }
                 })
             }
@@ -156,10 +156,10 @@ fn expand_hddm_read(input: DeriveInput) -> proc_macro2::TokenStream {
                 Some(quote! {
                 ::hddm::ChildPlan::Decode {
                     generated_index: #index,
-                    plan,
+                    plan: __hddm_child_plan,
                     ..
                 } => {
-                        #ident = Some(r.read_required_link_planned(plan)?);
+                        #ident = Some(__hddm_reader.read_required_link_planned(__hddm_child_plan)?);
                     }
                 })
             }
@@ -169,10 +169,10 @@ fn expand_hddm_read(input: DeriveInput) -> proc_macro2::TokenStream {
                 Some(quote! {
                 ::hddm::ChildPlan::Decode {
                     generated_index: #index,
-                    plan,
+                    plan: __hddm_child_plan,
                     ..
                 } => {
-                        #ident = r.read_list_planned(plan)?;
+                        #ident = __hddm_reader.read_list_planned(__hddm_child_plan)?;
                     }
                 })
             }
@@ -195,7 +195,7 @@ fn expand_hddm_read(input: DeriveInput) -> proc_macro2::TokenStream {
 
     quote! {
         impl ::hddm::HddmRead for #name {
-            fn read_contents(r: &mut ::hddm::ElementReader) -> ::hddm::HddmResult<Self> {
+            fn read_contents(__hddm_reader: &mut ::hddm::ElementReader) -> ::hddm::HddmResult<Self> {
                 Ok(Self {
                     #(#reads)*
                 })
@@ -203,16 +203,16 @@ fn expand_hddm_read(input: DeriveInput) -> proc_macro2::TokenStream {
         }
         impl ::hddm::HddmReadPlanned for #name {
             fn read_contents_planned(
-                r: &mut ::hddm::ElementReader,
-                plan: &::hddm::ElementPlan,
+                __hddm_reader: &mut ::hddm::ElementReader,
+                __hddm_plan: &::hddm::ElementPlan,
             ) -> ::hddm::HddmResult<Self> {
                 #(#planned_initializers)*
 
-                for child in &plan.children {
-                    match child {
+                for __hddm_child in &__hddm_plan.children {
+                    match __hddm_child {
                         #(#planned_matches)*
                         ::hddm::ChildPlan::Skip { .. } => {
-                            r.skip_element()?;
+                            __hddm_reader.skip_element()?;
                         }
                         ::hddm::ChildPlan::Decode { generated_index, .. } => {
                             return Err(::hddm::HddmError::FormatError(format!("unexpected HDDM child index {generated_index}"

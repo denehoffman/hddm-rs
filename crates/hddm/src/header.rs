@@ -29,6 +29,13 @@ pub struct AttributeDef {
     pub ty: String,
 }
 
+pub fn is_hddm_type(ty: &str) -> bool {
+    matches!(
+        ty,
+        "int" | "long" | "float" | "double" | "boolean" | "string" | "anyURI" | "Particle_t"
+    )
+}
+
 pub fn read_header_streaming<R: BufRead>(reader: &mut R) -> HddmResult<(HddmModel, String)> {
     let mut header = Vec::new();
     let needle = b"</HDDM>";
@@ -173,10 +180,14 @@ fn parse_element(e: BytesStart<'_>) -> HddmResult<ElementDef> {
             "minOccurs" => min_occurs = Some(value),
             "maxOccurs" => max_occurs = Some(value),
             "class" | "version" | "xmlns" => {}
-            _ => attributes.push(AttributeDef {
-                name: key,
-                ty: value,
-            }),
+            _ => {
+                if is_hddm_type(&value) {
+                    attributes.push(AttributeDef {
+                        name: key,
+                        ty: value,
+                    })
+                }
+            }
         }
     }
 

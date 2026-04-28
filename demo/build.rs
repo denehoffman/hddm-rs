@@ -17,6 +17,16 @@ fn main() -> anyhow::Result<()> {
     let (model, model_text) = read_header_streaming(&mut reader)?;
     let generated = generate_rust(&model, &model_text)?;
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
+    let out_file = out_dir.join("hddm_mc.rs");
+    fs::write(&out_file, generated)?;
+
+    let model_path = manifest_dir.join("models/sample_s.hddm");
+    println!("cargo:rerun-if-changed={}", model_path.display());
+    let file = File::open(&model_path)?;
+    let mut reader = BufReader::new(file);
+    let (model, model_text) = read_header_streaming(&mut reader)?;
+    let generated = generate_rust(&model, &model_text)?;
+    let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     let out_file = out_dir.join("hddm_s.rs");
     fs::write(&out_file, generated)?;
     Ok(())

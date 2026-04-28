@@ -168,7 +168,7 @@ fn rust_type(ty: &str) -> TokenStream {
         "double" => quote! { f64 },
         "boolean" => quote! { bool },
         "string" | "anyURI" => quote! { String },
-        "Particle_t" => quote! { ::gluex_core::Particle },
+        "Particle_t" => quote! { ::hddm::Particle },
         other => quote! {
             compile_error!(concat!("unsupported HDDM type: ", #other))
         },

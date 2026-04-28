@@ -12,10 +12,7 @@ rust-version.workspace = true
 
 [dependencies]
 bzip2.workspace = true
-clap.workspace = true
 flate2.workspace = true
-gluex-core.workspace = true
-md5.workspace = true
 quick-xml.workspace = true
 thiserror.workspace = true
 
