@@ -39,16 +39,22 @@ pub fn generate_rust(model: &HddmModel, model_text: &str) -> anyhow::Result<Stri
         #(#generated)*
 
         #[allow(dead_code)]
+        pub fn open<P: AsRef<std::path::Path>>(path: P) -> ::hddm::HddmResult<::hddm::HddmFileReader> {
+            ::hddm::HddmFileReader::open(path)
+        }
+        #[allow(dead_code)]
         pub fn create<P: AsRef<std::path::Path>>(path: P) -> ::hddm::HddmResult<::hddm::HddmFileWriter> {
-            ::hddm::HddmFileWriter::create(path, MODEL)
+            ::hddm::HddmFileWriter::new(
+                path,
+                ::hddm::WriteMode::Create {
+                    model: MODEL.to_string(),
+                },
+                ::hddm::Compression::Zlib,
+            )
         }
         #[allow(dead_code)]
-        pub fn create_with_compression<P: AsRef<std::path::Path>>(path: P, compression: ::hddm::Compression) -> ::hddm::HddmResult<::hddm::HddmFileWriter> {
-            ::hddm::HddmFileWriter::create_with_compression(path, MODEL, compression)
-        }
-        #[allow(dead_code)]
-        pub fn open<P: AsRef<std::path::Path>>(path: P) -> ::hddm::HddmResult<::hddm::HddmFile<std::io::BufReader<std::fs::File>>> {
-            ::hddm::HddmFile::open(path)
+        pub fn append<P: AsRef<std::path::Path>>(path: P) -> ::hddm::HddmResult<::hddm::HddmFileWriter> {
+            ::hddm::HddmFileWriter::new(path, ::hddm::WriteMode::Append, ::hddm::Compression::Zlib)
         }
 
         impl ::hddm::HddmSchema for #root_ident {

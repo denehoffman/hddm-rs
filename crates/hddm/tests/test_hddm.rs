@@ -1,4 +1,4 @@
-use hddm::{Compression, HddmFile, HddmFileWriter, HddmRead, HddmResult, HddmSchema, HddmWrite};
+use hddm::{Compression, HddmFile, HddmRead, HddmResult, HddmSchema, HddmWrite};
 
 const MODEL: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <HDDM class="x">
@@ -110,7 +110,7 @@ pub fn generate_events() -> Vec<Hddm> {
 fn test_roundtrip() -> HddmResult<()> {
     let path = tempfile::NamedTempFile::new()?;
     let path = path.path();
-    let mut file = HddmFileWriter::create(path, MODEL)?;
+    let mut file = HddmFile::create(path, MODEL)?.with_compression(Compression::None)?;
 
     let events = generate_events();
     file.write_record(&events[0])?;
@@ -128,7 +128,7 @@ fn test_roundtrip() -> HddmResult<()> {
 fn test_roundtrip_zlib() -> HddmResult<()> {
     let path = tempfile::NamedTempFile::new()?;
     let path = path.path();
-    let mut file = HddmFileWriter::create_with_compression(path, MODEL, Compression::Zlib)?;
+    let mut file = HddmFile::create(path, MODEL)?.with_compression(Compression::Zlib)?;
 
     let events = generate_events();
     file.write_record(&events[0])?;
@@ -146,7 +146,7 @@ fn test_roundtrip_zlib() -> HddmResult<()> {
 fn test_roundtrip_bzip2() -> HddmResult<()> {
     let path = tempfile::NamedTempFile::new()?;
     let path = path.path();
-    let mut file = HddmFileWriter::create_with_compression(path, MODEL, Compression::Bzip2)?;
+    let mut file = HddmFile::create(path, MODEL)?.with_compression(Compression::Bzip2)?;
 
     let events = generate_events();
     file.write_record(&events[0])?;
@@ -164,18 +164,18 @@ fn test_roundtrip_bzip2() -> HddmResult<()> {
 fn test_compression_switching() -> HddmResult<()> {
     let path = tempfile::NamedTempFile::new()?;
     let path = path.path();
-    let mut out = HddmFileWriter::create(path, MODEL)?;
+    let mut out = HddmFile::create(path, MODEL)?.with_compression(Compression::None)?;
     let events = generate_events();
 
     out.write_record(&events[0])?;
 
-    out.switch_compression(Compression::Zlib)?;
+    out.set_compression(Compression::Zlib)?;
     out.write_record(&events[1])?;
 
-    out.switch_compression(Compression::None)?;
+    out.set_compression(Compression::None)?;
     out.write_record(&events[0])?;
 
-    out.switch_compression(Compression::Bzip2)?;
+    out.set_compression(Compression::Bzip2)?;
     out.write_record(&events[1])?;
 
     out.finish()?;
@@ -282,7 +282,7 @@ fn skips_unknown_child_from_file_schema() -> HddmResult<()> {
         }),
     };
 
-    let mut out = HddmFileWriter::create(path, MODEL_WITH_EXTRA)?;
+    let mut out = HddmFile::create(path, MODEL_WITH_EXTRA)?;
     out.write_record(&extra)?;
     out.finish()?;
 
@@ -374,7 +374,7 @@ fn defaults_missing_optional_child() -> HddmResult<()> {
             }],
         }),
     };
-    let mut out = HddmFileWriter::create(path, MODEL_MISSING_OPTIONAL)?;
+    let mut out = HddmFile::create(path, MODEL_MISSING_OPTIONAL)?;
     out.write_record(&written)?;
     out.finish()?;
     let mut input = HddmFile::open(path)?;
@@ -438,7 +438,7 @@ fn errors_on_attribute_mismatch() -> HddmResult<()> {
         }),
     };
 
-    let mut out = HddmFileWriter::create(path, MODEL_ATTR_MISMATCH)?;
+    let mut out = HddmFile::create(path, MODEL_ATTR_MISMATCH)?;
     out.write_record(&written)?;
     out.finish()?;
 

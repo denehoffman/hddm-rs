@@ -9,17 +9,17 @@ pub(crate) mod xdr;
 
 pub mod prelude {
     pub use crate::{
-        ChildPlan, Compression, ElementPlan, ElementReader, HddmError, HddmFile, HddmFileWriter,
-        HddmModel, HddmPrimitiveRead, HddmPrimitiveWrite, HddmRead, HddmReadPlanned, HddmReader,
-        HddmResult, HddmSchema, HddmWrite, HddmWriter, ModelPlan, build_model_plan,
-        validate_models,
+        ChildPlan, Compression, ElementPlan, ElementReader, HddmError, HddmFileReader,
+        HddmFileWriter, HddmModel, HddmPrimitiveRead, HddmPrimitiveWrite, HddmRead,
+        HddmReadPlanned, HddmReader, HddmResult, HddmSchema, HddmWrite, HddmWriter, ModelPlan,
+        build_model_plan, validate_models,
     };
 }
 
 use std::{
     collections::HashMap,
     fs::File,
-    io::{BufRead, BufReader, BufWriter, Write},
+    io::{BufReader, BufWriter, Write},
     path::Path,
 };
 
@@ -46,12 +46,31 @@ pub enum Compression {
     Bzip2,
 }
 
-pub struct HddmFile<R: BufRead> {
+pub struct HddmFile;
+impl HddmFile {
+    pub fn open<P: AsRef<Path>>(path: P) -> HddmResult<HddmFileReader> {
+        HddmFileReader::open(path)
+    }
+    pub fn create<P: AsRef<Path>, S: AsRef<str>>(path: P, model: S) -> HddmResult<HddmFileWriter> {
+        HddmFileWriter::new(
+            path,
+            WriteMode::Create {
+                model: model.as_ref().to_string(),
+            },
+            Compression::Zlib,
+        )
+    }
+    pub fn append<P: AsRef<Path>>(path: P) -> HddmResult<HddmFileWriter> {
+        HddmFileWriter::new(path, WriteMode::Append, Compression::Zlib)
+    }
+}
+
+pub struct HddmFileReader {
     pub header: HddmModel,
-    records: HddmRecordReader<R>,
+    records: HddmRecordReader<BufReader<File>>,
     plan_cache: HashMap<&'static str, ModelPlan>,
 }
-impl HddmFile<BufReader<File>> {
+impl HddmFileReader {
     pub fn open<P: AsRef<Path>>(path: P) -> HddmResult<Self> {
         let file = File::open(path)?;
         let mut raw = BufReader::new(file);
@@ -64,7 +83,7 @@ impl HddmFile<BufReader<File>> {
     }
 }
 
-impl<R: BufRead> HddmFile<R> {
+impl HddmFileReader {
     pub fn header(&self) -> &HddmModel {
         &self.header
     }
@@ -96,30 +115,29 @@ impl<R: BufRead> HddmFile<R> {
 pub struct HddmFileWriter {
     records: HddmRecordWriter<BufWriter<File>>,
 }
+pub enum WriteMode {
+    Create { model: String },
+    Append,
+}
+
 impl HddmFileWriter {
-    pub fn create<P: AsRef<Path>>(path: P, header: &str) -> HddmResult<Self> {
-        Self::create_with_compression(path, header, Compression::None)
-    }
-
-    pub fn create_with_compression<P: AsRef<Path>>(
+    pub fn new<P: AsRef<Path>>(
         path: P,
-
-        header: &str,
-
+        mode: WriteMode,
         compression: Compression,
     ) -> HddmResult<Self> {
-        let file = File::create(path)?;
-
+        let file = match mode {
+            WriteMode::Create { .. } => File::create(path)?,
+            WriteMode::Append => File::options().append(true).open(path)?,
+        };
         let mut raw = BufWriter::new(file);
-
-        raw.write_all(header.as_bytes())?;
-
+        if let WriteMode::Create { model: header } = mode {
+            raw.write_all(header.as_bytes())?;
+        }
         let mut records = HddmRecordWriter::new(raw);
-
         if compression != Compression::None {
             records.switch_compression(compression)?;
         }
-
         Ok(Self { records })
     }
 
@@ -127,7 +145,12 @@ impl HddmFileWriter {
         self.records.write_record(record)
     }
 
-    pub fn switch_compression(&mut self, compression: Compression) -> HddmResult<()> {
+    pub fn with_compression(mut self, compression: Compression) -> HddmResult<Self> {
+        self.records.switch_compression(compression)?;
+        Ok(self)
+    }
+
+    pub fn set_compression(&mut self, compression: Compression) -> HddmResult<()> {
         self.records.switch_compression(compression)
     }
 

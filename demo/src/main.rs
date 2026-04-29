@@ -88,7 +88,7 @@ fn demo_event() -> hddm_mc::Hddm {
 fn write_read(path: &str, compression: hddm::Compression) -> hddm::HddmResult<()> {
     let event = demo_event();
 
-    let mut out = hddm_mc::create_with_compression(path, compression)?;
+    let mut out = hddm_mc::create(path)?.with_compression(compression)?;
 
     out.write_record(&event)?;
     out.finish()?;
