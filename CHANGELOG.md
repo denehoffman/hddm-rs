@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/denehoffman/hddm-rs/compare/v0.1.2...v0.2.0) (2026-04-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* revise create/open interface, add append (unchecked)
+
+### Features
+
+* Revise create/open interface, add append (unchecked) ([73cbd38](https://github.com/denehoffman/hddm-rs/commit/73cbd38c557a273e6083fd0434a12ac6d66fe58b))
+
 ## [0.1.2](https://github.com/denehoffman/hddm-rs/compare/v0.1.1...v0.1.2) (2026-04-28)
 
 
