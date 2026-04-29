@@ -30,12 +30,9 @@ While not a direct port of the original HDDM C++ code, it is important to recogn
 ### Writing a file
 
 ```rust
-use hddm::Compression;
-
-let mut file = hddm::HddmFileWriter::create_with_compression(
+let mut file = hddm::HddmFile::create(
     "/tmp/example.hddm",
     MODEL,
-    Compression::Zlib,
 )?;
 file.write_record(&event)?;
 file.finish()?;
@@ -112,7 +109,7 @@ mod hddm_s {
 fn main() -> anyhow::Result<()> {
     let event = demo_event();
 
-    let mut out = hddm_s::create_with_compression(path, hddm::Compression::Bzip2)?;
+    let mut out = hddm_s::create(path)?.with_compression(hddm::Compression::Bzip2)?;
 
     out.write_record(&event)?;
     out.finish()?;
