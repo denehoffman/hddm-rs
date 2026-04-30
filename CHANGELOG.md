@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/denehoffman/hddm-rs/compare/v0.2.0...v0.2.1) (2026-04-30)
+
+
+### Bug Fixes
+
+* Clippy lints ([50001ce](https://github.com/denehoffman/hddm-rs/commit/50001ce9066e4192c718259279df4166dbb58553))
+* Remove xml header from binaries and set default compression to none ([cba8156](https://github.com/denehoffman/hddm-rs/commit/cba81562dbb46a6ba9e025193869516b751d5410))
+
 ## [0.2.0](https://github.com/denehoffman/hddm-rs/compare/v0.1.2...v0.2.0) (2026-04-29)
 
 
