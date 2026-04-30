@@ -57,11 +57,11 @@ impl HddmFile {
             WriteMode::Create {
                 model: model.as_ref().to_string(),
             },
-            Compression::Zlib,
+            Compression::None,
         )
     }
     pub fn append<P: AsRef<Path>>(path: P) -> HddmResult<HddmFileWriter> {
-        HddmFileWriter::new(path, WriteMode::Append, Compression::Zlib)
+        HddmFileWriter::new(path, WriteMode::Append, Compression::None)
     }
 }
 
@@ -132,7 +132,7 @@ impl HddmFileWriter {
         };
         let mut raw = BufWriter::new(file);
         if let WriteMode::Create { model: header } = mode {
-            raw.write_all(header.as_bytes())?;
+            raw.write_all(hddm_stream_header(&header).as_bytes())?;
         }
         let mut records = HddmRecordWriter::new(raw);
         if compression != Compression::None {
@@ -163,6 +163,16 @@ impl HddmFileWriter {
     }
 }
 
+fn hddm_stream_header(model: &str) -> &str {
+    let trimmed = model.trim_start();
+    if let Some(rest) = trimmed.strip_prefix("<?xml") {
+        if let Some(end) = rest.find("?>") {
+            return rest[end + 2..].trim_start();
+        }
+    }
+    model
+}
+
 impl Drop for HddmFileWriter {
     fn drop(&mut self) {
         self.flush().unwrap();
@@ -173,4 +183,26 @@ pub trait HddmSchema {
     fn model() -> &'static HddmModel;
     fn model_text() -> &'static str;
     fn hddm_class() -> &'static str;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hddm_stream_header;
+
+    #[test]
+    fn stream_header_strips_xml_declaration() {
+        let model = r#"<?xml version="1.0" encoding="UTF-8"?>
+<HDDM class="s" version="1.0" xmlns="http://www.gluex.org/hddm">
+</HDDM>
+"#;
+
+        assert!(hddm_stream_header(model).starts_with("<HDDM"));
+    }
+
+    #[test]
+    fn stream_header_preserves_legacy_header() {
+        let model = "<HDDM class=\"s\"></HDDM>\n";
+
+        assert_eq!(hddm_stream_header(model), model);
+    }
 }

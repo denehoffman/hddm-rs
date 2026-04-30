@@ -49,12 +49,12 @@ pub fn generate_rust(model: &HddmModel, model_text: &str) -> anyhow::Result<Stri
                 ::hddm::WriteMode::Create {
                     model: MODEL.to_string(),
                 },
-                ::hddm::Compression::Zlib,
+                ::hddm::Compression::None,
             )
         }
         #[allow(dead_code)]
         pub fn append<P: AsRef<std::path::Path>>(path: P) -> ::hddm::HddmResult<::hddm::HddmFileWriter> {
-            ::hddm::HddmFileWriter::new(path, ::hddm::WriteMode::Append, ::hddm::Compression::Zlib)
+            ::hddm::HddmFileWriter::new(path, ::hddm::WriteMode::Append, ::hddm::Compression::None)
         }
 
         impl ::hddm::HddmSchema for #root_ident {
