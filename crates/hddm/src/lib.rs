@@ -165,10 +165,10 @@ impl HddmFileWriter {
 
 fn hddm_stream_header(model: &str) -> &str {
     let trimmed = model.trim_start();
-    if let Some(rest) = trimmed.strip_prefix("<?xml") {
-        if let Some(end) = rest.find("?>") {
-            return rest[end + 2..].trim_start();
-        }
+    if let Some(rest) = trimmed.strip_prefix("<?xml")
+        && let Some(end) = rest.find("?>")
+    {
+        return rest[end + 2..].trim_start();
     }
     model
 }
